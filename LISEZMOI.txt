@@ -1,5 +1,13 @@
-Déposer TOUS les fichiers et le dossier "videos" sur GitHub (Add file > Upload files), en écrasant les anciens.
-Téléphone : adresse du site (…/projection/)       Projection : …/projection/screen.html
-QR de test : …/projection/qr.html (à ouvrir sur l'ordinateur, puis à scanner avec le téléphone)
-Test sans téléphone sur la page de projection : touches 1 (Poursuivre), 2 (Faisceau), 3 (Capture), 0 (Recommencer), F (plein écran)
-Écrans du téléphone : remplacer ecran_mission.png, ecran_faisceau.png, ecran_capture.png, ecran_fin.png par vos PNG Figma (même nom).
+MISE EN LIGNE : sur GitHub, Add file > Upload files, glisser TOUS les fichiers ET le dossier "videos", valider (les fichiers du même nom sont remplacés).
+Les anciens accueil.png et ecran_*.png ne servent plus : vous pouvez les supprimer.
+Après 1 à 2 minutes, recharger les pages avec Cmd+Maj+R.
+
+Téléphone  : …/projection/
+Projection : …/projection/screen.html   (cliquer une fois, puis touche F)
+QR de test : …/projection/qr.html  (à ouvrir sur l'ordinateur, puis scanner avec le téléphone)
+
+Test sans téléphone sur la page de projection : 1 attente, 2 start, 3 faisceau, 4 eat, 5 end, 0 remise à zéro.
+Page téléphone avec les zones cliquables en rouge : …/projection/?debug=1
+Aller directement à un écran : …/projection/?start=s06a   (s01 … s11)
+
+Réglages : en haut de index.html (délais, vitesse du radar) et de screen.html (vidéos, faisceau).

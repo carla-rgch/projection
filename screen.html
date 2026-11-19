@@ -3,76 +3,159 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden}
-  #stage{position:fixed;inset:0;background:#000}
-  #stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;opacity:0}
+  #frame{position:absolute;left:50%;top:50%;width:min(100vw,calc(100vh*16/9));height:min(100vh,calc(100vw*9/16));
+         transform:translate(-50%,-50%);background:#000;overflow:hidden}
+  #stage{position:absolute;inset:0;z-index:0;isolation:isolate}
+  #stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;opacity:0}
   #stage video.on{opacity:1}
+  #beam{position:absolute;inset:0;z-index:2;width:100%;height:100%;mix-blend-mode:screen;opacity:0;pointer-events:none}
   #start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#9fd8e6;
          font:22px/1.6 system-ui,sans-serif;text-align:center;cursor:pointer;background:#02101a;z-index:99}
   #status{position:fixed;left:12px;bottom:10px;color:#3d6b78;font:12px system-ui,sans-serif;z-index:100}
 </style></head><body>
-<div id="stage"></div>
+<div id="frame">
+  <div id="stage"></div>
+  <!-- Faisceau de lumière de la lampe du sous-marin (positions en coordonnées 1600 x 900) -->
+  <svg id="beam" viewBox="0 0 1600 900" preserveAspectRatio="none" aria-hidden="true">
+    <defs>
+      <linearGradient id="cone" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#c8f0ff" stop-opacity=".30"/>
+        <stop offset=".6" stop-color="#c8f0ff" stop-opacity=".15"/>
+        <stop offset="1" stop-color="#c8f0ff" stop-opacity=".04"/>
+      </linearGradient>
+      <radialGradient id="pool">
+        <stop offset="0" stop-color="#aee2ff" stop-opacity=".30"/>
+        <stop offset="1" stop-color="#aee2ff" stop-opacity="0"/>
+      </radialGradient>
+      <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="34"/></filter>
+    </defs>
+    <polygon id="cone-shape" points="350,-120 430,-120 900,640 150,640" fill="url(#cone)" filter="url(#soft)"/>
+    <ellipse id="pool-shape" cx="760" cy="445" rx="600" ry="190" fill="url(#pool)"/>
+  </svg>
+</div>
 <div id="start"><div>Cliquez ici une fois, puis touche F pour le plein écran.<br>
 <span id="relay" style="font-size:16px;color:#7fb">Connexion au relais…</span></div></div>
 <div id="status"></div>
 <script src="config.js"></script>
 <script>
-/* ====== À MODIFIER SI BESOIN : les vidéos et leurs enchaînements ======
-   loop:true  -> la vidéo tourne en boucle jusqu'à la prochaine commande
-   next:"..." -> à la fin de la vidéo, on enchaîne automatiquement sur celle-ci */
+/* ====== À MODIFIER SI BESOIN ======
+   loop:true   -> la vidéo tourne en boucle (sans à-coup) jusqu'à la prochaine commande
+   next:"..."  -> à la fin de la vidéo, on enchaîne tout de suite sur celle-ci
+   beam        -> faisceau de lumière : 'flicker' (s'allume en clignotant), 'on', 'fadeout'; sans valeur = éteint */
 const CLIPS = {
   attente:    { src: 'videos/attente.mp4',    loop: true },
   start:      { src: 'videos/start.mp4',      next: 'loop_fade' },
   loop_fade:  { src: 'videos/loop_fade.mp4',  loop: true },
-  allumage:   { src: 'videos/allumage.mp4',   next: 'loop_color' },
-  loop_color: { src: 'videos/loop_color.mp4', loop: true },
-  eat:        { src: 'videos/eat.mp4',        next: 'loop_color' },
+  allumage:   { src: 'videos/allumage.mp4',   next: 'loop_color', beam: 'flicker' },
+  loop_color: { src: 'videos/loop_color.mp4', loop: true, beam: 'on' },
+  eat:        { src: 'videos/eat.mp4',        next: 'loop_color', beam: 'on' },
+  end:        { src: 'videos/end.mp4',        next: 'attente',    beam: 'fadeout' },
 };
 /* message reçu du téléphone -> vidéo à lancer */
-const ACTIONS = { start: 'start', faisceau: 'allumage', eat: 'eat', reset: 'attente' };
-/* ====================================================================== */
+const ACTIONS = { attente: 'attente', start: 'start', faisceau: 'allumage', eat: 'eat', end: 'end' };
+const LEAD = 0.06;   // secondes : on lance la vidéo suivante juste avant la fin de la précédente
+/* =================================== */
 
 const q = new URLSearchParams(location.search);
 const RELAY = q.get('relay') || 'https://ntfy.sh';
 const st = document.getElementById('status'), rl = document.getElementById('relay');
-const stage = document.getElementById('stage');
-const V = {};
+const stage = document.getElementById('stage'), beam = document.getElementById('beam');
+const ALL = [], els = {};
 for (const [name, c] of Object.entries(CLIPS)) {
-  const v = document.createElement('video');
-  v.src = c.src; v.preload = 'auto'; v.playsInline = true; v.loop = !!c.loop;
-  v.addEventListener('ended', () => onEnded(name));
-  v.addEventListener('error', () => st.textContent = 'Erreur vidéo ' + name + ' : ' + (v.error && v.error.message));
-  stage.appendChild(v); V[name] = v;
+  els[name] = [];
+  for (let i = 0; i < (c.loop ? 2 : 1); i++) {          // les boucles ont 2 lecteurs, utilisés en alternance
+    const v = document.createElement('video');
+    v.src = c.src; v.preload = 'auto'; v.playsInline = true; v.loop = false;
+    v.addEventListener('ended', () => { if (v === curEl) advance(); });
+    v.addEventListener('error', () => st.textContent = 'Erreur vidéo ' + name + ' : ' + (v.error && v.error.message));
+    stage.appendChild(v); els[name].push(v); ALL.push(v);
+  }
 }
-let ready = false, current = null, pending = null, z = 1;
+let ready = false, cur = null, curEl = null, idx = 0, queue = [], z = 1, advanced = false;
 
-function go(name) {
-  const v = V[name];
-  v.currentTime = 0;
-  const prev = current; current = name;
-  st.textContent = 'vidéo : ' + name;
-  v.play().then(() => {
-    v.style.zIndex = ++z; v.classList.add('on');
-    setTimeout(() => {                         // retire l'ancienne vidéo une fois la nouvelle affichée
-      for (const [n, o] of Object.entries(V)) if (n !== current) { o.classList.remove('on'); o.pause(); }
-    }, 120);
-  }).catch(e => st.textContent = 'Lecture bloquée : ' + e.message);
+/* ---------- faisceau ---------- */
+let beamAnim = null, beamState = 'off';
+function setBeam(mode) {
+  if (mode === beamState || (mode === 'on' && (beamState === 'flicker' || beamState === 'on'))) return;
+  if (beamAnim) { beamAnim.cancel(); beamAnim = null; }
+  beamState = mode;
+  if (mode === 'off') { beam.style.opacity = 0; return; }
+  if (mode === 'fadeout') {
+    const o = parseFloat(getComputedStyle(beam).opacity) || 0;
+    beamAnim = beam.animate([{ opacity: o }, { opacity: 0 }], { duration: 500, fill: 'forwards' }); return;
+  }
+  const breathe = () => {
+    beam.style.opacity = 1;
+    beamAnim = beam.animate([{ opacity: 1 }, { opacity: .82 }, { opacity: 1 }],
+      { duration: 1635, iterations: Infinity, easing: 'ease-in-out' });
+  };
+  if (mode === 'on') return breathe();
+  // 'flicker' : opacité 0 / 25 / 0 / 65 / 20 / 100 % aux images 1, 4, 6, 9, 11, 13 (24 i/s), maintenue entre les clés
+  const hold = 'steps(1, end)';
+  beamAnim = beam.animate([
+    { offset: 0,      opacity: 0,   easing: hold }, { offset: .25,   opacity: .25, easing: hold },
+    { offset: .4167,  opacity: 0,   easing: hold }, { offset: .6667, opacity: .65, easing: hold },
+    { offset: .8333,  opacity: .2,  easing: hold }, { offset: 1,     opacity: 1 }], { duration: 500, fill: 'forwards' });
+  beamAnim.onfinish = () => { beamAnim = null; beamState = 'off'; setBeam('on'); };
 }
-function onEnded(name) {
-  if (name !== current || CLIPS[name].loop) return;
-  const n = pending || CLIPS[name].next; pending = null;
-  if (n) go(n);
+
+/* ---------- lecture ---------- */
+function whenFirstFrame(el, cb) {
+  const t0 = performance.now();
+  (function poll() {
+    if ((el.currentTime > 0.001 && el.readyState >= 2) || performance.now() - t0 > 600) cb();
+    else requestAnimationFrame(poll);
+  })();
+}
+function reveal(el) {
+  el.style.zIndex = ++z; el.classList.add('on');
+  setTimeout(() => {
+    for (const o of ALL) if (o !== el && o.classList.contains('on')) { o.classList.remove('on'); o.pause(); o.currentTime = 0; }
+  }, 80);
+}
+function rewind(v) { if (Math.abs(v.currentTime) > 0.01) v.currentTime = 0; }
+function startClip(name) {
+  const c = CLIPS[name]; stage.style.transition = 'none'; stage.style.opacity = 1;
+  cur = name; idx = 0; curEl = els[name][0]; advanced = false;
+  rewind(curEl); curEl.play().catch(e => st.textContent = 'Lecture bloquée : ' + e.message);
+  whenFirstFrame(curEl, () => reveal(curEl));
+  setBeam(c.beam || 'off');
+  if (c.loop) rewind(els[name][1]);                      // prépare le 2e lecteur
+  if (c.next) rewind(els[c.next][0]);                    // prépare la vidéo suivante
+  st.textContent = 'vidéo : ' + name;
+}
+function swapLoop() {
+  idx = 1 - idx; const other = els[cur][idx]; curEl = other; advanced = false;
+  rewind(other); other.play().catch(() => {});
+  whenFirstFrame(other, () => reveal(other));
+}
+function advance() {
+  if (advanced || !cur) return; advanced = true;
+  const c = CLIPS[cur];
+  if (c.loop) { if (queue.length) startClip(queue.shift()); else swapLoop(); }
+  else { const n = queue.shift() || c.next; if (n) startClip(n); }
+}
+function tick() {
+  if (ready && curEl && curEl.duration && curEl.duration - curEl.currentTime <= LEAD) advance();
+  requestAnimationFrame(tick);
+}
+function idle() {
+  queue = []; cur = null; curEl = null; setBeam('off');
+  stage.style.transition = 'opacity .4s'; stage.style.opacity = 0;
+  setTimeout(() => { if (!cur) for (const v of ALL) { v.classList.remove('on'); v.pause(); v.currentTime = 0; } }, 450);
+  st.textContent = 'en attente';
 }
 function act(cmd) {
   if (!ready) { st.textContent = 'Pas encore activé : cliquez sur la page'; return; }
-  const target = ACTIONS[cmd]; if (!target) return;
-  if (cmd === 'reset') { pending = null; return go(target); }
-  const playingOneShot = current && !CLIPS[current].loop && !V[current].ended;
-  if (playingOneShot) { if (target !== current) pending = target; }   // on attend la fin de la vidéo en cours
-  else if (target !== current) go(target);
+  if (cmd === 'reset') return idle();
+  const target = ACTIONS[cmd]; if (!target || target === cur) return;
+  const oneShot = cur && !CLIPS[cur].loop;
+  if (oneShot) { if (queue[queue.length - 1] !== target) queue.push(target); } else startClip(target);   // une vidéo non bouclée en cours : on attend sa fin
 }
 document.getElementById('start').addEventListener('click', () => {
   document.getElementById('start').style.display = 'none'; ready = true;
-  go('attente');
+  for (const v of ALL) { v.muted = true; v.play().then(() => { v.pause(); v.currentTime = 0; v.muted = false; }).catch(() => { v.muted = false; }); }
+  requestAnimationFrame(tick); idle();
 });
 
 const es = new EventSource(RELAY + '/' + window.TOPIC + '/sse');
@@ -81,12 +164,12 @@ es.onerror = () => { rl.textContent = 'Relais injoignable : vérifiez internet';
 es.onmessage = e => {
   let d; try { d = JSON.parse(e.data); } catch { return; }
   if (d.event && d.event !== 'message') return;
-  const cmd = (d.message || '').trim();
-  st.textContent = 'message : ' + cmd; act(cmd);
+  const cmd = (d.message || '').trim(); st.textContent = 'message : ' + cmd; act(cmd);
 };
-/* Tests au clavier, sans téléphone : 1 = Poursuivre, 2 = Faisceau, 3 = Capture, 0 = Recommencer */
+/* Tests au clavier, sans téléphone : 1 attente, 2 start, 3 faisceau, 4 eat, 5 end, 0 remise à zéro, F plein écran */
 addEventListener('keydown', e => {
-  const k = { '1': 'start', '2': 'faisceau', '3': 'eat', '0': 'reset' }[e.key]; if (k) act(k);
+  const k = { '1': 'attente', '2': 'start', '3': 'faisceau', '4': 'eat', '5': 'end', '0': 'reset' }[e.key]; if (k) act(k);
   if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
 });
+window.__dbg = () => ({ cur, pending: queue.join('>'), beamState, on: ALL.filter(v => v.classList.contains('on')).map(v => v.src.split('/').pop()) });
 </script></body></html>

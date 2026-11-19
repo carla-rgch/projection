@@ -2,114 +2,245 @@
 <html lang="fr"><head><meta charset="utf-8"><title>Télécommande</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>
-  html,body{margin:0;background:#020b12;min-height:100%;font-family:system-ui,sans-serif}
-  #app{position:relative;width:100%;max-width:480px;margin:0 auto}
-  #app img{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none}
-  .zone{position:absolute;border-radius:999px;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .35s}
-  .zone.flash{background:rgba(120,230,255,.28);transition:background .05s}
-  #err{position:fixed;left:8px;right:8px;top:8px;background:#7a1f1f;color:#fff;font:14px system-ui;padding:8px 12px;border-radius:8px;display:none;z-index:9}
-  /* écran de scan */
-  #scan{display:none;position:relative;height:100vh;height:100dvh;background:#020b12;overflow:hidden}
-  #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-  #scan .shade{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(2,11,18,0) 30%,rgba(2,11,18,.75) 85%)}
-  #scan h1{position:absolute;left:24px;right:24px;top:9%;margin:0;color:#e8eef0;font-size:30px;line-height:1.15;font-weight:600}
-  #scan p{position:absolute;left:24px;right:24px;top:calc(9% + 80px);margin:0;color:#b8c8d0;font-size:15px}
-  #frame{position:absolute;left:50%;top:46%;width:68%;aspect-ratio:1;transform:translate(-50%,-50%);
-         border:2px solid rgba(110,230,230,.9);border-radius:18px;box-shadow:0 0 0 2000px rgba(2,11,18,.35)}
-  #msg{position:absolute;left:24px;right:24px;bottom:calc(15% + 70px);text-align:center;color:#9fe;font-size:15px;min-height:20px}
-  #sim{position:absolute;left:8%;right:8%;bottom:7%;height:56px;border-radius:999px;border:1.5px solid rgba(120,150,165,.9);
-       background:rgba(18,32,42,.85);color:#e8eef0;font-size:17px;cursor:pointer}
-  #detected{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(2,11,18,.8);
-            color:#9fe;font-size:22px;text-align:center;padding:24px}
+  html,body{margin:0;background:#020b12;min-height:100%;-webkit-text-size-adjust:100%}
+  #app{position:relative;width:100%;max-width:480px;margin:0 auto;overflow:hidden;background:#020b12}
+  .layer{position:relative;animation:fadein .18s ease-out}
+  @keyframes fadein{from{opacity:0}to{opacity:1}}
+  .layer>img.bg{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none}
+  .zone{position:absolute;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .3s;z-index:6}
+  .zone.flash{background:rgba(120,230,255,.22);transition:background .05s}
+  body.debug .zone{outline:2px solid red}
+  #fx{position:absolute;left:0;top:0;pointer-events:none;z-index:5}
+  #err{position:fixed;left:8px;right:8px;top:8px;background:#7a1f1f;color:#fff;font:14px system-ui;padding:8px 12px;border-radius:8px;display:none;z-index:99}
+  /* radar */
+  .sweep{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}
+  .over{position:absolute;left:0;top:0;width:100%;height:auto;pointer-events:none;opacity:0}
+  /* caméra (écran 02) */
+  .camwrap{position:absolute;overflow:hidden;border-radius:10px;background:#020b12;z-index:3;display:none}
+  .camwrap video{width:100%;height:100%;object-fit:cover;display:block}
+  .scanline{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#7ef3f3,transparent);
+            box-shadow:0 0 10px 2px rgba(126,243,243,.6);animation:scan 2s ease-in-out infinite alternate}
+  @keyframes scan{from{top:4%}to{top:96%}}
+  .camdone{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(2,11,18,.78);
+           color:#9ff;font:600 15px system-ui;text-align:center;padding:10px}
+  .camnote{pointer-events:none;position:absolute;left:8%;right:8%;text-align:center;color:#8fd8e2;font:13px/1.4 system-ui;z-index:7}
 </style></head><body>
-<div id="app"></div>
-<div id="scan">
-  <video id="cam" playsinline muted autoplay></video><div class="shade"></div>
-  <h1>Scannez le QR code</h1><p>Placez le code dans le cadre.</p>
-  <div id="frame"></div><div id="msg"></div>
-  <button id="sim">Simuler le scan</button>
-  <div id="detected"><div>QR code détecté<br><small id="dtext" style="color:#b8c8d0;font-size:14px"></small></div></div>
-</div>
+<div id="app"><canvas id="fx"></canvas></div>
 <div id="err"></div>
 <script src="config.js"></script>
 <script src="jsQR.js"></script>
 <script>
-/* ====== À MODIFIER SI BESOIN : les écrans du téléphone ======
-   img   : le PNG de l'écran (remplacez les fichiers ecran_*.png par vos PNG Figma, même nom)
-   zones : les boutons cliquables (en % de l'image). send = message envoyé à l'écran de projection,
-           go = écran affiché ensuite sur le téléphone                                           */
-const BTN = { l: 6.15, t: 87.2, w: 87.7, h: 6.6 };          // bouton du bas (même position que l'accueil)
-const SCREENS = {
-  accueil:  { img: 'accueil.png',        zones: [{ ...BTN, go: 'scan' }] },
-  scan:     { camera: true,              next: 'mission' },
-  mission:  { img: 'ecran_mission.png',  zones: [{ ...BTN, send: 'start',    go: 'faisceau' }] },
-  faisceau: { img: 'ecran_faisceau.png', zones: [{ ...BTN, send: 'faisceau', go: 'capture'  }] },
-  capture:  { img: 'ecran_capture.png',  zones: [{ ...BTN, send: 'eat',      go: 'fin'      }] },
-  fin:      { img: 'ecran_fin.png',      zones: [{ ...BTN, send: 'reset',    go: 'accueil'  }] },
-};
-/* ============================================================ */
+/* ======== RÉGLAGES ======== */
+const EAT_DELAY = 5000;    // ms : après « Observer la capture », on attend la fin de la vidéo Eat avant l'écran suivant
+const END_DELAY = 1500;    // ms : après « Explorer d'autres missions », la vidéo End démarre, puis le téléphone revient à la sélection
+const RADAR = { speed: 170, detectAngle: 35, afterDetect: 2200 };  // vitesse (°/s), cap du spécimen (°), pause avant l'écran suivant (ms)
+/* ============================ */
 
 const RELAY = new URLSearchParams(location.search).get('relay') || 'https://ntfy.sh';
-const app = document.getElementById('app'), scanEl = document.getElementById('scan'), err = document.getElementById('err');
+if (new URLSearchParams(location.search).has('debug')) document.body.classList.add('debug');
+const app = document.getElementById('app'), err = document.getElementById('err');
 function send(cmd) {
   return fetch(RELAY + '/' + window.TOPIC, { method: 'POST', body: cmd })
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); err.style.display = 'none'; })
     .catch(e => { err.textContent = 'Message non envoyé (' + e.message + '). Vérifiez la connexion internet.'; err.style.display = 'block'; });
 }
-let stream = null, raf = 0;
-function stopCam() { cancelAnimationFrame(raf); if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; }
+let busy = false;
+const later = (ms, fn) => setTimeout(fn, ms);
 
-function show(id) {
-  const s = SCREENS[id]; stopCam();
-  if (s.camera) { app.style.display = 'none'; scanEl.style.display = 'block'; startScan(s.next); return; }
-  scanEl.style.display = 'none'; app.style.display = 'block'; app.innerHTML = '';
-  const img = new Image(); img.src = s.img; img.alt = id; app.appendChild(img);
+/* ======== ÉCRANS ========
+   img   : fichier PNG       zones : boutons cliquables en % de l'image {l,t,w,h}
+   tap   : ce qui se passe au toucher (go('écran'), send('message'), …) */
+const B  = { l: 6.1, t: 87.2, w: 87.7, h: 6.6 };    // bouton du bas « standard »
+const SCREENS = {
+  s01: { img: 's01_accueil.png', zones: [{ ...B, tap: () => { send('attente'); go('s02'); } }] },
+  s02: { img: 's02_qr.png', camera: { l: 20.5, t: 38.3, w: 59.0, h: 27.2 },
+         zones: [{ l: 4, t: 4.5, w: 40, h: 4.6, tap: () => go('s01') },
+                 { ...B, tap: () => startCamera() },
+                 { l: 10, t: 69.5, w: 80, h: 3.6, tap: () => fakeScan(), quiet: true }] },   // zone invisible : toucher la phrase « Visez le QR code… » simule le scan
+  s03: { img: 's03_missions.png', zones: [{ l: 6.1, t: 34.3, w: 42.1, h: 27.5, r: 16, tap: () => go('s04') }] },
+  s04: { img: 's04_mission.png', zones: [{ l: 4, t: 5.2, w: 48, h: 3.6, tap: () => go('s03') },
+                                         { l: 6.1, t: 50.2, w: 38.8, h: 4.0, r: 20, tap: () => go('s05') },
+                                         { l: 6.1, t: 62.3, w: 87.7, h: 8.0, r: 14, tap: () => go('s06a') }] },
+  s05: { img: 's05_fiche.png', zones: [{ l: 4, t: 2.0, w: 48, h: 2.2, tap: () => go('s04') },
+                                       { l: 6.1, t: 94.8, w: 87.7, h: 2.8, r: 14, tap: () => go('s04') }] },
+  s06a: { img: 's06a_radar_propre.png', radar: true,
+          zones: [{ l: 4, t: 5.2, w: 48, h: 3.6, tap: () => { if (!busy) go('s04'); } },
+                  { ...B, tap: () => startRadar() }] },
+  s06b: { img: 's06b_radar.png', zones: [] },
+  s07: { img: 's07_localise.png', zones: [{ ...B, tap: () => { send('start'); go('s08a'); } }] },
+  s08a: { img: 's08a_faisceau_off.png', zones: [{ ...B, tap: () => { send('faisceau'); go('s08b'); } }] },
+  s08b: { img: 's08b_faisceau_on.png', zones: [{ l: 6.1, t: 90.0, w: 87.7, h: 6.7, tap: () => go('s09') }] },
+  s09: { img: 's09_structure.png', zones: [{ ...B, tap: () => go('s10a') }] },
+  s10a: { img: 's10a_alimentation.png', zones: [{ l: 6.1, t: 90.3, w: 87.7, h: 6.7, tap: () => {
+            if (busy) return; busy = true; send('eat'); later(EAT_DELAY, () => { busy = false; go('s11'); }); } }] },
+  s11: { img: 's11_fin.png', zones: [{ l: 6.1, t: 83.0, w: 87.7, h: 6.7, tap: () => {
+            if (busy) return; busy = true; send('end'); later(END_DELAY, () => { busy = false; go('s03'); }); } },
+          { l: 6.1, t: 91.0, w: 87.7, h: 5.8, tap: () => { send('reset'); go('s01'); } }] },
+};
+const START = new URLSearchParams(location.search).get('start') || 's01';
+Object.values(SCREENS).forEach(s => { const i = new Image(); i.src = s.img; });
+new Image().src = 's06b_radar.png';
+
+let current = null, layer = null;
+function go(id) {
+  stopCamera(); stopRadar();
+  const s = SCREENS[id]; current = id;
+  const L = document.createElement('div'); L.className = 'layer';
+  const img = new Image(); img.className = 'bg'; img.src = s.img; img.alt = id; L.appendChild(img);
   for (const z of s.zones) {
     const d = document.createElement('div'); d.className = 'zone';
-    d.style.cssText = `left:${z.l}%;top:${z.t}%;width:${z.w}%;height:${z.h}%`;
-    d.addEventListener('click', () => {
-      if (z.send) send(z.send);
-      d.classList.add('flash'); setTimeout(() => show(z.go), 150);
-    });
-    app.appendChild(d);
+    d.style.cssText = `left:${z.l}%;top:${z.t}%;width:${z.w}%;height:${z.h}%;border-radius:${z.r != null ? z.r + 'px' : '999px'}`;
+    d.addEventListener('click', () => { if (!z.quiet) { d.classList.add('flash'); later(160, () => d.classList.remove('flash')); } z.tap(); });
+    L.appendChild(d);
   }
-  window.scrollTo(0, 0);
+  if (s.radar) buildRadar(L);
+  if (s.camera) buildCamera(L, s.camera);
+  if (layer) layer.remove();
+  app.insertBefore(L, document.getElementById('fx')); layer = L;
+  window.scrollTo(0, 0); fxResize();
 }
 
-function startScan(next) {
-  const cam = document.getElementById('cam'), msg = document.getElementById('msg');
-  const det = document.getElementById('detected'), sim = document.getElementById('sim');
-  det.style.display = 'none'; msg.textContent = 'Démarrage de la caméra…';
-  let done = false;
-  const finish = text => {
-    if (done) return; done = true; stopCam();
-    document.getElementById('dtext').textContent = text || '';
-    det.style.display = 'flex'; if (navigator.vibrate) navigator.vibrate(80);
-    setTimeout(() => show(next), 900);
-  };
-  sim.onclick = () => finish('(scan simulé)');
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    msg.textContent = 'Caméra indisponible ici : utilisez « Simuler le scan ».'; return;
-  }
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
-    .then(s => {
-      if (done) { s.getTracks().forEach(t => t.stop()); return; }
-      stream = s; cam.srcObject = s; cam.play().catch(() => {});
-      msg.textContent = 'Visez le QR code…';
-      const c = document.createElement('canvas'), ctx = c.getContext('2d', { willReadFrequently: true });
-      const tick = () => {
-        if (done) return;
-        if (cam.videoWidth) {
-          const w = 480, h = Math.round(480 * cam.videoHeight / cam.videoWidth);
-          c.width = w; c.height = h; ctx.drawImage(cam, 0, 0, w, h);
-          const r = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
-          if (r && r.data) return finish(r.data);
-        }
-        raf = requestAnimationFrame(tick);
-      };
-      tick();
-    })
-    .catch(e => { msg.textContent = 'Caméra refusée ou indisponible (' + e.name + '). Utilisez « Simuler le scan ».'; });
+/* ======== RADAR (écrans 06A -> 06B) ======== */
+let radarRaf = 0, radarState = null;
+function buildRadar(L) {
+  const cv = document.createElement('canvas'); cv.className = 'sweep'; L.appendChild(cv);
+  const btn = new Image(); btn.className = 'over'; btn.src = 's06b_radar.png'; btn.style.clipPath = 'inset(87% 5% 5% 5%)'; L.appendChild(btn);  // « Balayage en cours… »
+  const full = new Image(); full.className = 'over'; full.src = 's06b_radar.png'; L.appendChild(full);                                            // écran 06B
+  radarState = { cv, btn, full, running: false };
 }
-show('accueil');
+function drawSweep(cv, angle) {   // angle en degrés, 0 = nord, sens horaire. Coordonnées de l'image d'origine : 390 x 844
+  const w = cv.clientWidth, h = cv.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const ctx = cv.getContext('2d'), k = w / 390 * dpr, cx = 195 * k, cy = 480 * k, R = 128 * k;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
+  const alphaAt = d => d < 20 ? .27 - d * .0025 : d < 45 ? .22 - (d - 20) * .0048 : d < 110 ? .10 - (d - 45) * .00098 : 0;  // intensité mesurée sur votre maquette
+  const span = 110;
+  if (ctx.createConicGradient) {                        // sillage en dégradé continu (navigateurs récents)
+    const g = ctx.createConicGradient((angle - 90 - span) * Math.PI / 180, cx, cy);
+    for (let d = span; d >= 0; d -= 5) g.addColorStop((span - d) / 360, `rgba(112,236,238,${Math.max(alphaAt(d), 0)})`);
+    g.addColorStop(span / 360 + .0008, 'rgba(112,236,238,0)'); g.addColorStop(1, 'rgba(112,236,238,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+  } else {                                              // secours : tranches
+    const N = 110;
+    for (let i = 0; i < N; i++) {
+      const d0 = i * span / N, d1 = (i + 1) * span / N;
+      ctx.fillStyle = `rgba(112,236,238,${Math.max(alphaAt((d0 + d1) / 2), 0)})`; ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, R, (angle - 90 - d1 - .3) * Math.PI / 180, (angle - 90 - d0) * Math.PI / 180); ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.restore();
+  const t = (angle - 90) * Math.PI / 180;
+  ctx.strokeStyle = 'rgb(116,238,240)'; ctx.lineWidth = 2 * k; ctx.lineCap = 'round'; ctx.shadowColor = 'rgba(112,236,238,.9)'; ctx.shadowBlur = 8 * k;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(t) * R, cy + Math.sin(t) * R); ctx.stroke();
+  ctx.shadowBlur = 0; ctx.fillStyle = 'rgb(126,243,243)'; ctx.beginPath(); ctx.arc(cx, cy, 5 * k, 0, Math.PI * 2); ctx.fill();
+}
+function startRadar() {
+  if (busy || !radarState) return; busy = true;
+  const rs = radarState; rs.btn.style.opacity = 1; rs.running = true;
+  const t0 = performance.now(), total = 360 + RADAR.detectAngle; let detected = false;
+  (function frame(now) {
+    if (!rs.running) return;
+    const ang = Math.min((now - t0) / 1000 * RADAR.speed, total);
+    drawSweep(rs.cv, ang % 360);
+    if (ang >= total && !detected) {
+      detected = true;
+      rs.full.style.transition = 'opacity .28s'; rs.full.style.opacity = 1;                         // 06B : spécimen localisé
+      later(RADAR.afterDetect, () => { if (current === 's06a') { busy = false; go('s07'); } });
+      later(320, () => { rs.cv.style.display = 'none'; });
+      return;
+    }
+    radarRaf = requestAnimationFrame(frame);
+  })(performance.now());
+}
+function stopRadar() { cancelAnimationFrame(radarRaf); if (radarState) radarState.running = false; radarState = null; }
+
+/* ======== CAMÉRA / SCAN QR (écran 02) ======== */
+let stream = null, camRaf = 0, cam = null;
+function buildCamera(L, box) {
+  const w = document.createElement('div'); w.className = 'camwrap';
+  w.style.cssText = `left:${box.l}%;top:${box.t}%;width:${box.w}%;height:${box.h}%`;
+  w.innerHTML = '<video playsinline muted autoplay></video><div class="scanline"></div><div class="camdone"><div>QR code détecté<br><small></small></div></div>';
+  L.appendChild(w);
+  const n = document.createElement('div'); n.className = 'camnote'; n.style.top = '72.5%'; L.appendChild(n);
+  cam = { wrap: w, video: w.querySelector('video'), done: w.querySelector('.camdone'), note: n, finished: false };
+}
+function stopCamera() { cancelAnimationFrame(camRaf); if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; cam = null; }
+function scanDone(text) {
+  if (!cam || cam.finished) return; cam.finished = true; cancelAnimationFrame(camRaf);
+  cam.wrap.style.display = 'block'; cam.done.style.display = 'flex'; cam.done.querySelector('small').textContent = text;
+  if (navigator.vibrate) navigator.vibrate(80);
+  later(900, () => { if (current === 's02') go('s03'); });
+}
+function fakeScan() { if (cam) scanDone('(scan simulé)'); }
+function startCamera() {
+  if (!cam || stream || cam.finished) return;
+  const c = cam; c.wrap.style.display = 'block'; c.note.textContent = '';
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    c.note.textContent = 'Caméra indisponible ici : touchez cette phrase pour simuler le scan.'; return;
+  }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }).then(s => {
+    if (cam !== c) { s.getTracks().forEach(t => t.stop()); return; }
+    stream = s; c.video.srcObject = s; c.video.play().catch(() => {});
+    const cv = document.createElement('canvas'), ctx = cv.getContext('2d', { willReadFrequently: true });
+    (function tick() {
+      if (cam !== c || c.finished) return;
+      const v = c.video;
+      if (v.videoWidth) {
+        const W = 480, H = Math.round(480 * v.videoHeight / v.videoWidth); cv.width = W; cv.height = H; ctx.drawImage(v, 0, 0, W, H);
+        const r = jsQR(ctx.getImageData(0, 0, W, H).data, W, H, { inversionAttempts: 'dontInvert' });
+        if (r && r.data) { stopTracks(); return scanDone(r.data); }
+      }
+      camRaf = requestAnimationFrame(tick);
+    })();
+  }).catch(e => { c.wrap.style.display = 'none'; c.note.textContent = 'Caméra refusée (' + e.name + '). Touchez cette phrase pour simuler le scan.'; });
+}
+function stopTracks() { if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; }
+
+/* ======== PARTICULES + PARALLAX ======== */
+const fx = document.getElementById('fx'), fctx = fx.getContext('2d');
+let P = [], tilt = { x: 0, y: 0 }, tiltT = { x: 0, y: 0 }, beta0 = null, lastT = performance.now();
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function fxResize() {
+  const w = app.clientWidth, h = app.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
+  fx.style.width = w + 'px'; fx.style.height = h + 'px'; fx.width = Math.round(w * dpr); fx.height = Math.round(h * dpr);
+  const n = Math.max(30, Math.min(130, Math.round(w * h / 9000)));
+  P = Array.from({ length: n }, () => { const d = [0.3, 0.6, 1][Math.floor(Math.random() * 3)];
+    return { x: Math.random(), y: Math.random(), d, s: .6 + 1.8 * d * (.6 + Math.random() * .6), a: .1 + .4 * d * Math.random(),
+             v: 4 + 11 * d * (.5 + Math.random()), ph: Math.random() * 6.28, sw: 4 + 7 * d, bokeh: Math.random() < .25 }; });
+}
+function fxFrame(now) {
+  const dt = Math.min((now - lastT) / 1000, .05); lastT = now;
+  const w = fx.clientWidth, h = fx.clientHeight, dpr = fx.width / Math.max(w, 1);
+  tilt.x += (tiltT.x - tilt.x) * .08; tilt.y += (tiltT.y - tilt.y) * .08;
+  fctx.setTransform(dpr, 0, 0, dpr, 0, 0); fctx.clearRect(0, 0, w, h);
+  const sc = window.scrollY || 0;
+  for (const p of P) {
+    p.y -= p.v * dt / h; if (p.y < -0.02) { p.y = 1.02; p.x = Math.random(); }
+    const x = p.x * w + Math.sin(now / 1800 + p.ph) * p.sw + tilt.x * 26 * p.d;
+    let y = p.y * h + tilt.y * 18 * p.d - (p.d - .6) * .35 * sc;                  // les plus proches défilent un peu plus vite : profondeur
+    y = ((y % h) + h) % h;
+    const tw = .65 + .35 * Math.sin(now / 900 + p.ph * 2), r = p.bokeh ? p.s * 4 : p.s;
+    fctx.fillStyle = `rgba(150,232,240,${(p.bokeh ? p.a * .3 : p.a) * tw})`;
+    fctx.beginPath(); fctx.arc(x, y, r, 0, 6.2832); fctx.fill();
+  }
+  requestAnimationFrame(fxFrame);
+}
+if (!REDUCED) requestAnimationFrame(fxFrame);
+addEventListener('resize', fxResize);
+addEventListener('mousemove', e => { tiltT.x = (e.clientX / innerWidth - .5) * 2; tiltT.y = (e.clientY / innerHeight - .5) * 2; });
+function onOrient(e) {
+  if (e.gamma == null) return; if (beta0 == null) beta0 = e.beta;
+  tiltT.x = Math.max(-1, Math.min(1, e.gamma / 30)); tiltT.y = Math.max(-1, Math.min(1, (e.beta - beta0) / 25));
+}
+let motionAsked = false;
+addEventListener('pointerdown', () => {            // iPhone : l'accès aux capteurs de mouvement se demande lors d'un toucher
+  if (motionAsked) return; motionAsked = true;
+  if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission)
+    DeviceOrientationEvent.requestPermission().then(r => { if (r === 'granted') addEventListener('deviceorientation', onOrient); }).catch(() => {});
+  else addEventListener('deviceorientation', onOrient);
+}, { once: false });
+new ResizeObserver(fxResize).observe(app);
+
+go(START);
 </script></body></html>
