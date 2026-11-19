@@ -3,49 +3,90 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden}
-  video{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;transition:opacity .35s ease}
-  video.on{opacity:1}
+  #stage{position:fixed;inset:0;background:#000}
+  #stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;opacity:0}
+  #stage video.on{opacity:1}
   #start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#9fd8e6;
-         font:22px/1.6 system-ui,sans-serif;text-align:center;cursor:pointer;background:#02101a}
-  #status{position:fixed;left:12px;bottom:10px;color:#3d6b78;font:12px system-ui,sans-serif}
+         font:22px/1.6 system-ui,sans-serif;text-align:center;cursor:pointer;background:#02101a;z-index:99}
+  #status{position:fixed;left:12px;bottom:10px;color:#3d6b78;font:12px system-ui,sans-serif;z-index:100}
 </style></head><body>
-<video id="v" playsinline preload="auto"></video>
+<div id="stage"></div>
 <div id="start"><div>Cliquez ici une fois, puis touche F pour le plein écran.<br>
 <span id="relay" style="font-size:16px;color:#7fb">Connexion au relais…</span></div></div>
 <div id="status"></div>
 <script src="config.js"></script>
 <script>
+/* ====== À MODIFIER SI BESOIN : les vidéos et leurs enchaînements ======
+   loop:true  -> la vidéo tourne en boucle jusqu'à la prochaine commande
+   next:"..." -> à la fin de la vidéo, on enchaîne automatiquement sur celle-ci */
+const CLIPS = {
+  attente:    { src: 'videos/attente.mp4',    loop: true },
+  start:      { src: 'videos/start.mp4',      next: 'loop_fade' },
+  loop_fade:  { src: 'videos/loop_fade.mp4',  loop: true },
+  allumage:   { src: 'videos/allumage.mp4',   next: 'loop_color' },
+  loop_color: { src: 'videos/loop_color.mp4', loop: true },
+  eat:        { src: 'videos/eat.mp4',        next: 'loop_color' },
+};
+/* message reçu du téléphone -> vidéo à lancer */
+const ACTIONS = { start: 'start', faisceau: 'allumage', eat: 'eat', reset: 'attente' };
+/* ====================================================================== */
+
 const q = new URLSearchParams(location.search);
 const RELAY = q.get('relay') || 'https://ntfy.sh';
-const v = document.getElementById('v'), st = document.getElementById('status'), rl = document.getElementById('relay');
-v.src = q.get('src') || 'video.mp4';
-let ready = false;
-function play() {
-  if (!ready) { st.textContent = 'Pas encore activé : cliquez sur la page'; return; }
-  v.currentTime = 0; v.classList.add('on');
-  v.play().catch(e => st.textContent = 'Lecture bloquée : ' + e.message);
+const st = document.getElementById('status'), rl = document.getElementById('relay');
+const stage = document.getElementById('stage');
+const V = {};
+for (const [name, c] of Object.entries(CLIPS)) {
+  const v = document.createElement('video');
+  v.src = c.src; v.preload = 'auto'; v.playsInline = true; v.loop = !!c.loop;
+  v.addEventListener('ended', () => onEnded(name));
+  v.addEventListener('error', () => st.textContent = 'Erreur vidéo ' + name + ' : ' + (v.error && v.error.message));
+  stage.appendChild(v); V[name] = v;
 }
-function stop() { v.classList.remove('on'); setTimeout(() => { v.pause(); v.currentTime = 0; }, 400); }
+let ready = false, current = null, pending = null, z = 1;
+
+function go(name) {
+  const v = V[name];
+  v.currentTime = 0;
+  const prev = current; current = name;
+  st.textContent = 'vidéo : ' + name;
+  v.play().then(() => {
+    v.style.zIndex = ++z; v.classList.add('on');
+    setTimeout(() => {                         // retire l'ancienne vidéo une fois la nouvelle affichée
+      for (const [n, o] of Object.entries(V)) if (n !== current) { o.classList.remove('on'); o.pause(); }
+    }, 120);
+  }).catch(e => st.textContent = 'Lecture bloquée : ' + e.message);
+}
+function onEnded(name) {
+  if (name !== current || CLIPS[name].loop) return;
+  const n = pending || CLIPS[name].next; pending = null;
+  if (n) go(n);
+}
+function act(cmd) {
+  if (!ready) { st.textContent = 'Pas encore activé : cliquez sur la page'; return; }
+  const target = ACTIONS[cmd]; if (!target) return;
+  if (cmd === 'reset') { pending = null; return go(target); }
+  const playingOneShot = current && !CLIPS[current].loop && !V[current].ended;
+  if (playingOneShot) { if (target !== current) pending = target; }   // on attend la fin de la vidéo en cours
+  else if (target !== current) go(target);
+}
 document.getElementById('start').addEventListener('click', () => {
   document.getElementById('start').style.display = 'none'; ready = true;
-  v.play().then(() => { v.pause(); v.currentTime = 0; }).catch(() => {});
+  go('attente');
 });
-v.addEventListener('ended', stop);
-v.addEventListener('error', () => st.textContent = 'Erreur vidéo : ' + (v.error && v.error.message));
+
 const es = new EventSource(RELAY + '/' + window.TOPIC + '/sse');
-es.onopen = () => { rl.textContent = '✓ Relais connecté, prêt.'; st.textContent = 'connecté'; };
-es.onerror = () => { rl.textContent = 'Relais injoignable : vérifiez internet'; st.textContent = 'connexion perdue, nouvel essai…'; };
+es.onopen = () => { rl.textContent = '✓ Relais connecté, prêt.'; };
+es.onerror = () => { rl.textContent = 'Relais injoignable : vérifiez internet'; };
 es.onmessage = e => {
   let d; try { d = JSON.parse(e.data); } catch { return; }
   if (d.event && d.event !== 'message') return;
-  const name = (d.message || '').trim();
-  st.textContent = 'message : ' + name;
-  if (name === 'play') play();
-  if (name === 'stop') stop();
+  const cmd = (d.message || '').trim();
+  st.textContent = 'message : ' + cmd; act(cmd);
 };
+/* Tests au clavier, sans téléphone : 1 = Poursuivre, 2 = Faisceau, 3 = Capture, 0 = Recommencer */
 addEventListener('keydown', e => {
-  if (e.key === 'p') play();
-  if (e.key === 'Escape') stop();
+  const k = { '1': 'start', '2': 'faisceau', '3': 'eat', '0': 'reset' }[e.key]; if (k) act(k);
   if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
 });
 </script></body></html>

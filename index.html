@@ -2,29 +2,114 @@
 <html lang="fr"><head><meta charset="utf-8"><title>Télécommande</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>
-  html,body{margin:0;background:#020b12;height:100%}
-  #wrap{position:relative;width:100%;max-width:480px;margin:0 auto}
-  #wrap img{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none}
+  html,body{margin:0;background:#020b12;min-height:100%;font-family:system-ui,sans-serif}
+  #app{position:relative;width:100%;max-width:480px;margin:0 auto}
+  #app img{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none}
   .zone{position:absolute;border-radius:999px;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .35s}
   .zone.flash{background:rgba(120,230,255,.28);transition:background .05s}
-  #err{position:fixed;left:8px;right:8px;top:8px;background:#7a1f1f;color:#fff;font:14px system-ui;padding:8px 12px;border-radius:8px;display:none}
+  #err{position:fixed;left:8px;right:8px;top:8px;background:#7a1f1f;color:#fff;font:14px system-ui;padding:8px 12px;border-radius:8px;display:none;z-index:9}
+  /* écran de scan */
+  #scan{display:none;position:relative;height:100vh;height:100dvh;background:#020b12;overflow:hidden}
+  #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  #scan .shade{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(2,11,18,0) 30%,rgba(2,11,18,.75) 85%)}
+  #scan h1{position:absolute;left:24px;right:24px;top:9%;margin:0;color:#e8eef0;font-size:30px;line-height:1.15;font-weight:600}
+  #scan p{position:absolute;left:24px;right:24px;top:calc(9% + 80px);margin:0;color:#b8c8d0;font-size:15px}
+  #frame{position:absolute;left:50%;top:46%;width:68%;aspect-ratio:1;transform:translate(-50%,-50%);
+         border:2px solid rgba(110,230,230,.9);border-radius:18px;box-shadow:0 0 0 2000px rgba(2,11,18,.35)}
+  #msg{position:absolute;left:24px;right:24px;bottom:calc(15% + 70px);text-align:center;color:#9fe;font-size:15px;min-height:20px}
+  #sim{position:absolute;left:8%;right:8%;bottom:7%;height:56px;border-radius:999px;border:1.5px solid rgba(120,150,165,.9);
+       background:rgba(18,32,42,.85);color:#e8eef0;font-size:17px;cursor:pointer}
+  #detected{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(2,11,18,.8);
+            color:#9fe;font-size:22px;text-align:center;padding:24px}
 </style></head><body>
-<div id="wrap">
-  <img src="accueil.png" alt="Accueil">
-  <div class="zone" data-cmd="play" style="left:6.15%;top:87.2%;width:87.7%;height:6.6%"></div>
+<div id="app"></div>
+<div id="scan">
+  <video id="cam" playsinline muted autoplay></video><div class="shade"></div>
+  <h1>Scannez le QR code</h1><p>Placez le code dans le cadre.</p>
+  <div id="frame"></div><div id="msg"></div>
+  <button id="sim">Simuler le scan</button>
+  <div id="detected"><div>QR code détecté<br><small id="dtext" style="color:#b8c8d0;font-size:14px"></small></div></div>
 </div>
 <div id="err"></div>
 <script src="config.js"></script>
+<script src="jsQR.js"></script>
 <script>
+/* ====== À MODIFIER SI BESOIN : les écrans du téléphone ======
+   img   : le PNG de l'écran (remplacez les fichiers ecran_*.png par vos PNG Figma, même nom)
+   zones : les boutons cliquables (en % de l'image). send = message envoyé à l'écran de projection,
+           go = écran affiché ensuite sur le téléphone                                           */
+const BTN = { l: 6.15, t: 87.2, w: 87.7, h: 6.6 };          // bouton du bas (même position que l'accueil)
+const SCREENS = {
+  accueil:  { img: 'accueil.png',        zones: [{ ...BTN, go: 'scan' }] },
+  scan:     { camera: true,              next: 'mission' },
+  mission:  { img: 'ecran_mission.png',  zones: [{ ...BTN, send: 'start',    go: 'faisceau' }] },
+  faisceau: { img: 'ecran_faisceau.png', zones: [{ ...BTN, send: 'faisceau', go: 'capture'  }] },
+  capture:  { img: 'ecran_capture.png',  zones: [{ ...BTN, send: 'eat',      go: 'fin'      }] },
+  fin:      { img: 'ecran_fin.png',      zones: [{ ...BTN, send: 'reset',    go: 'accueil'  }] },
+};
+/* ============================================================ */
+
 const RELAY = new URLSearchParams(location.search).get('relay') || 'https://ntfy.sh';
-const err = document.getElementById('err');
+const app = document.getElementById('app'), scanEl = document.getElementById('scan'), err = document.getElementById('err');
 function send(cmd) {
   return fetch(RELAY + '/' + window.TOPIC, { method: 'POST', body: cmd })
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); err.style.display = 'none'; })
-    .catch(e => { err.textContent = "Message non envoyé (" + e.message + "). Vérifiez la connexion internet."; err.style.display = 'block'; });
+    .catch(e => { err.textContent = 'Message non envoyé (' + e.message + '). Vérifiez la connexion internet.'; err.style.display = 'block'; });
 }
-document.querySelectorAll('.zone').forEach(z => z.addEventListener('click', () => {
-  send(z.dataset.cmd);
-  z.classList.add('flash'); setTimeout(() => z.classList.remove('flash'), 150);
-}));
+let stream = null, raf = 0;
+function stopCam() { cancelAnimationFrame(raf); if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; }
+
+function show(id) {
+  const s = SCREENS[id]; stopCam();
+  if (s.camera) { app.style.display = 'none'; scanEl.style.display = 'block'; startScan(s.next); return; }
+  scanEl.style.display = 'none'; app.style.display = 'block'; app.innerHTML = '';
+  const img = new Image(); img.src = s.img; img.alt = id; app.appendChild(img);
+  for (const z of s.zones) {
+    const d = document.createElement('div'); d.className = 'zone';
+    d.style.cssText = `left:${z.l}%;top:${z.t}%;width:${z.w}%;height:${z.h}%`;
+    d.addEventListener('click', () => {
+      if (z.send) send(z.send);
+      d.classList.add('flash'); setTimeout(() => show(z.go), 150);
+    });
+    app.appendChild(d);
+  }
+  window.scrollTo(0, 0);
+}
+
+function startScan(next) {
+  const cam = document.getElementById('cam'), msg = document.getElementById('msg');
+  const det = document.getElementById('detected'), sim = document.getElementById('sim');
+  det.style.display = 'none'; msg.textContent = 'Démarrage de la caméra…';
+  let done = false;
+  const finish = text => {
+    if (done) return; done = true; stopCam();
+    document.getElementById('dtext').textContent = text || '';
+    det.style.display = 'flex'; if (navigator.vibrate) navigator.vibrate(80);
+    setTimeout(() => show(next), 900);
+  };
+  sim.onclick = () => finish('(scan simulé)');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    msg.textContent = 'Caméra indisponible ici : utilisez « Simuler le scan ».'; return;
+  }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+    .then(s => {
+      if (done) { s.getTracks().forEach(t => t.stop()); return; }
+      stream = s; cam.srcObject = s; cam.play().catch(() => {});
+      msg.textContent = 'Visez le QR code…';
+      const c = document.createElement('canvas'), ctx = c.getContext('2d', { willReadFrequently: true });
+      const tick = () => {
+        if (done) return;
+        if (cam.videoWidth) {
+          const w = 480, h = Math.round(480 * cam.videoHeight / cam.videoWidth);
+          c.width = w; c.height = h; ctx.drawImage(cam, 0, 0, w, h);
+          const r = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
+          if (r && r.data) return finish(r.data);
+        }
+        raf = requestAnimationFrame(tick);
+      };
+      tick();
+    })
+    .catch(e => { msg.textContent = 'Caméra refusée ou indisponible (' + e.name + '). Utilisez « Simuler le scan ».'; });
+}
+show('accueil');
 </script></body></html>

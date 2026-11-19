@@ -1,0 +1,5 @@
+Déposer TOUS les fichiers et le dossier "videos" sur GitHub (Add file > Upload files), en écrasant les anciens.
+Téléphone : adresse du site (…/projection/)       Projection : …/projection/screen.html
+QR de test : …/projection/qr.html (à ouvrir sur l'ordinateur, puis à scanner avec le téléphone)
+Test sans téléphone sur la page de projection : touches 1 (Poursuivre), 2 (Faisceau), 3 (Capture), 0 (Recommencer), F (plein écran)
+Écrans du téléphone : remplacer ecran_mission.png, ecran_faisceau.png, ecran_capture.png, ecran_fin.png par vos PNG Figma (même nom).
