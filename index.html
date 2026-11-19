@@ -3,20 +3,42 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>
   html,body{margin:0;background:#020b12;min-height:100%;-webkit-text-size-adjust:100%}
-  #app{position:relative;width:100%;max-width:480px;margin:0 auto;overflow:hidden;background:#020b12}
-  .layer{position:relative;animation:fadein .18s ease-out}
-  @keyframes fadein{from{opacity:0}to{opacity:1}}
-  .layer>img.bg{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none}
-  .zone{position:absolute;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .3s;z-index:6}
-  .zone.flash{background:rgba(120,230,255,.22);transition:background .05s}
+  body{overflow-x:hidden}
+  /* ---- fond marin : image + lumières qui dérivent ; il suit l'inclinaison du téléphone, l'interface reste fixe ---- */
+  #bg{position:fixed;inset:0;z-index:0;overflow:hidden;background:#020b12}
+  #bgin{position:absolute;inset:-9%;will-change:transform}
+  #fond{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;animation:breathe 16s ease-in-out infinite alternate}
+  @keyframes breathe{from{transform:scale(1)}to{transform:scale(1.05) translateY(-1.5%)}}
+  .blob{position:absolute;border-radius:50%;mix-blend-mode:screen;pointer-events:none;will-change:transform,opacity}
+  .b1{width:120vmax;height:120vmax;left:-30vmax;top:-35vmax;background:radial-gradient(closest-side,rgba(52,150,200,.50),rgba(52,150,200,0));opacity:.75;animation:d1 21s ease-in-out infinite alternate}
+  .b2{width:100vmax;height:100vmax;right:-40vmax;top:20%;background:radial-gradient(closest-side,rgba(40,110,190,.46),rgba(40,110,190,0));opacity:.7;animation:d2 27s ease-in-out infinite alternate}
+  .b3{width:90vmax;height:90vmax;left:-20vmax;bottom:-45vmax;background:radial-gradient(closest-side,rgba(70,200,215,.34),rgba(70,200,215,0));opacity:.65;animation:d3 33s ease-in-out infinite alternate}
+  @keyframes d1{from{transform:translate(0,0) scale(1)}to{transform:translate(22vmax,14vmax) scale(1.15)}}
+  @keyframes d2{from{transform:translate(0,0) scale(1.1)}to{transform:translate(-26vmax,-12vmax) scale(.9)}}
+  @keyframes d3{from{transform:translate(0,0)}to{transform:translate(30vmax,-16vmax) scale(1.2)}}
+  .rays{position:absolute;inset:0;background:linear-gradient(180deg,rgba(120,220,240,.16),rgba(120,220,240,0) 42%);mix-blend-mode:screen;animation:pulse 9s ease-in-out infinite alternate;pointer-events:none}
+  @keyframes pulse{from{opacity:.35}to{opacity:1}}
+
+  /* ---- interface ---- */
+  #app{position:relative;z-index:1;width:100%;max-width:480px;margin:0 auto}
+  #ui{position:relative;width:100%;--k:.333}
+  .el{position:absolute;overflow:hidden;pointer-events:none;user-select:none;-webkit-user-select:none}
+  .el img{position:absolute;left:0;max-width:none;display:block;-webkit-user-drag:none;pointer-events:none}
+  #zones{position:absolute;inset:0;z-index:6}
+  .zone{position:absolute;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
   body.debug .zone{outline:2px solid red}
-  #fx{position:absolute;left:0;top:0;pointer-events:none;z-index:5}
+  /* glow au toucher */
+  .halo{position:absolute;inset:-2px;border-radius:inherit;pointer-events:none;opacity:0;
+        box-shadow:0 0 0 2px rgba(150,245,250,.75),0 0 22px 6px rgba(110,235,245,.65),inset 0 0 18px rgba(150,245,250,.35)}
+  .rw{position:absolute;inset:0;border-radius:inherit;overflow:hidden;pointer-events:none}
+  .rip{position:absolute;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;opacity:0;
+       background:radial-gradient(circle,rgba(190,250,255,.75) 0%,rgba(120,235,245,.35) 45%,rgba(120,235,245,0) 70%)}
+  #fx{position:fixed;left:0;top:0;pointer-events:none;z-index:5}
   #err{position:fixed;left:8px;right:8px;top:8px;background:#7a1f1f;color:#fff;font:14px system-ui;padding:8px 12px;border-radius:8px;display:none;z-index:99}
   /* radar */
-  .sweep{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}
-  .over{position:absolute;left:0;top:0;width:100%;height:auto;pointer-events:none;opacity:0}
+  .sweep{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:2}
   /* caméra (écran 02) */
-  .camwrap{position:absolute;overflow:hidden;border-radius:10px;background:#020b12;z-index:3;display:none}
+  .camwrap{position:absolute;overflow:hidden;border-radius:14px;background:#020b12;z-index:3;display:none}
   .camwrap video{width:100%;height:100%;object-fit:cover;display:block}
   .scanline{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#7ef3f3,transparent);
             box-shadow:0 0 10px 2px rgba(126,243,243,.6);animation:scan 2s ease-in-out infinite alternate}
@@ -25,20 +47,24 @@
            color:#9ff;font:600 15px system-ui;text-align:center;padding:10px}
   .camnote{pointer-events:none;position:absolute;left:8%;right:8%;text-align:center;color:#8fd8e2;font:13px/1.4 system-ui;z-index:7}
 </style></head><body>
-<div id="app"><canvas id="fx"></canvas></div>
+<div id="bg"><div id="bgin"><img id="fond" src="a/fond.webp" alt=""><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="rays"></div></div></div>
+<div id="app"><div id="ui"><div id="zones"></div></div></div>
+<canvas id="fx"></canvas>
 <div id="err"></div>
 <script src="config.js"></script>
 <script src="jsQR.js"></script>
+<script src="screens.js"></script>
 <script>
 /* ======== RÉGLAGES ======== */
-const EAT_DELAY = 5000;    // ms : après « Observer la capture », on attend la fin de la vidéo Eat avant l'écran suivant
 const END_DELAY = 1500;    // ms : après « Explorer d'autres missions », la vidéo End démarre, puis le téléphone revient à la sélection
 const RADAR = { speed: 170, detectAngle: 35, afterDetect: 2200 };  // vitesse (°/s), cap du spécimen (°), pause avant l'écran suivant (ms)
+const FX = { tiltBg: [22, 30], tiltParticles: [26, 18] };          // intensité de l'effet de profondeur (px) : fond, particules
 /* ============================ */
 
-const RELAY = new URLSearchParams(location.search).get('relay') || 'https://ntfy.sh';
-if (new URLSearchParams(location.search).has('debug')) document.body.classList.add('debug');
-const app = document.getElementById('app'), err = document.getElementById('err');
+const Q = new URLSearchParams(location.search);
+const RELAY = Q.get('relay') || 'https://ntfy.sh';
+if (Q.has('debug')) document.body.classList.add('debug');
+const ui = document.getElementById('ui'), zonesEl = document.getElementById('zones'), err = document.getElementById('err');
 function send(cmd) {
   return fetch(RELAY + '/' + window.TOPIC, { method: 'POST', body: cmd })
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); err.style.display = 'none'; })
@@ -46,75 +72,136 @@ function send(cmd) {
 }
 let busy = false;
 const later = (ms, fn) => setTimeout(fn, ms);
+const SD = window.SD;                       // découpe de chaque écran en éléments (générée à partir de vos exports Figma)
 
 /* ======== ÉCRANS ========
-   img   : fichier PNG       zones : boutons cliquables en % de l'image {l,t,w,h}
-   tap   : ce qui se passe au toucher (go('écran'), send('message'), …) */
-const B  = { l: 6.1, t: 87.2, w: 87.7, h: 6.6 };    // bouton du bas « standard »
+   zones : zones cliquables en pixels de l'export Figma (1170 de large) {x,y,w,h}   tap : action au toucher */
+const BTN = { x: 72, y: 2172, w: 1026, h: 174 };       // bouton du bas « standard »
+const BACK = { x: 60, y: 94, w: 460, h: 66 };          // flèche de retour en haut à gauche
 const SCREENS = {
-  s01: { img: 's01_accueil.png', zones: [{ ...B, tap: () => { send('attente'); go('s02'); } }] },
-  s02: { img: 's02_qr.png', camera: { l: 20.5, t: 38.3, w: 59.0, h: 27.2 },
-         zones: [{ l: 4, t: 4.5, w: 40, h: 4.6, tap: () => go('s01') },
-                 { ...B, tap: () => startCamera() },
-                 { l: 10, t: 69.5, w: 80, h: 3.6, tap: () => fakeScan(), quiet: true }] },   // zone invisible : toucher la phrase « Visez le QR code… » simule le scan
-  s03: { img: 's03_missions.png', zones: [{ l: 6.1, t: 34.3, w: 42.1, h: 27.5, r: 16, tap: () => go('s04') }] },
-  s04: { img: 's04_mission.png', zones: [{ l: 4, t: 5.2, w: 48, h: 3.6, tap: () => go('s03') },
-                                         { l: 6.1, t: 50.2, w: 38.8, h: 4.0, r: 20, tap: () => go('s05') },
-                                         { l: 6.1, t: 62.3, w: 87.7, h: 8.0, r: 14, tap: () => go('s06a') }] },
-  s05: { img: 's05_fiche.png', zones: [{ l: 4, t: 2.0, w: 48, h: 2.2, tap: () => go('s04') },
-                                       { l: 6.1, t: 94.8, w: 87.7, h: 2.8, r: 14, tap: () => go('s04') }] },
-  s06a: { img: 's06a_radar_propre.png', radar: true,
-          zones: [{ l: 4, t: 5.2, w: 48, h: 3.6, tap: () => { if (!busy) go('s04'); } },
-                  { ...B, tap: () => startRadar() }] },
-  s06b: { img: 's06b_radar.png', zones: [] },
-  s07: { img: 's07_localise.png', zones: [{ ...B, tap: () => { send('start'); go('s08a'); } }] },
-  s08a: { img: 's08a_faisceau_off.png', zones: [{ ...B, tap: () => { send('faisceau'); go('s08b'); } }] },
-  s08b: { img: 's08b_faisceau_on.png', zones: [{ l: 6.1, t: 90.0, w: 87.7, h: 6.7, tap: () => go('s09') }] },
-  s09: { img: 's09_structure.png', zones: [{ ...B, tap: () => go('s10a') }] },
-  s10a: { img: 's10a_alimentation.png', zones: [{ l: 6.1, t: 90.3, w: 87.7, h: 6.7, tap: () => {
-            if (busy) return; busy = true; send('eat'); later(EAT_DELAY, () => { busy = false; go('s11'); }); } }] },
-  s11: { img: 's11_fin.png', zones: [{ l: 6.1, t: 83.0, w: 87.7, h: 6.7, tap: () => {
+  s01: { zones: [{ ...BTN, tap: () => { send('attente'); go('s02'); } }] },
+  s02: { camera: { x: 240, y: 970, w: 690, h: 690 },
+         zones: [{ ...BACK, tap: () => go('s01') },
+                 { ...BTN, tap: () => startCamera() },
+                 { x: 180, y: 1770, w: 810, h: 80, tap: () => fakeScan(), quiet: true }] },   // zone invisible : toucher la phrase « Visez le QR code… » simule le scan
+  s03: { zones: [{ x: 72, y: 822, w: 495, h: 696, r: 60, tap: () => go('s04') }] },
+  s04: { zones: [{ ...BACK, tap: () => go('s03') },
+                 { x: 72, y: 1272, w: 450, h: 96, tap: () => go('s05') },
+                 { x: 72, y: 1530, w: 1026, h: 198, r: 66, tap: () => go('s06a') }] },
+  s05: { zones: [{ x: 60, y: 94, w: 700, h: 90, tap: () => go('s04') },
+                 { x: 72, y: 5376, w: 1026, h: 144, tap: () => go('s04') }] },
+  s06a: { radar: true,
+          zones: [{ ...BACK, tap: () => { if (!busy) go('s04'); } },
+                  { ...BTN, tap: () => startRadar() }] },
+  s06b: { zones: [] },
+  s07: { zones: [{ ...BTN, tap: () => { send('start'); go('s08a'); } }] },
+  s08a: { zones: [{ ...BTN, tap: () => { send('faisceau'); go('s08b'); } }] },
+  s08b: { zones: [{ ...BTN, tap: () => go('s09') }] },
+  s09: { zones: [{ ...BTN, tap: () => go('s10a') }] },
+  s10a: { zones: [{ ...BTN, tap: () => { send('eat'); go('s10b'); } }] },
+  s10b: { zones: [{ ...BTN, tap: () => go('s11') }] },
+  s11: { zones: [{ x: 72, y: 1986, w: 1026, h: 168, tap: () => {
             if (busy) return; busy = true; send('end'); later(END_DELAY, () => { busy = false; go('s03'); }); } },
-          { l: 6.1, t: 91.0, w: 87.7, h: 5.8, tap: () => { send('reset'); go('s01'); } }] },
+          { x: 72, y: 2178, w: 1026, h: 140, tap: () => { send('reset'); go('s01'); } }] },
 };
-const START = new URLSearchParams(location.search).get('start') || 's01';
-Object.values(SCREENS).forEach(s => { const i = new Image(); i.src = s.img; });
-new Image().src = 's06b_radar.png';
+const START = Q.get('start') || 's01';
 
-let current = null, layer = null;
-function go(id) {
-  stopCamera(); stopRadar();
-  const s = SCREENS[id]; current = id;
-  const L = document.createElement('div'); L.className = 'layer';
-  const img = new Image(); img.className = 'bg'; img.src = s.img; img.alt = id; L.appendChild(img);
-  for (const z of s.zones) {
-    const d = document.createElement('div'); d.className = 'zone';
-    d.style.cssText = `left:${z.l}%;top:${z.t}%;width:${z.w}%;height:${z.h}%;border-radius:${z.r != null ? z.r + 'px' : '999px'}`;
-    d.addEventListener('click', () => { if (!z.quiet) { d.classList.add('flash'); later(160, () => d.classList.remove('flash')); } z.tap(); });
-    L.appendChild(d);
+/* ======== AFFICHAGE : éléments + transitions en cascade ======== */
+const atlasCache = {};
+function loadAtlas(id) {
+  const D = SD[id];
+  if (!atlasCache[id]) { const im = new Image(); im.src = D.atlas; atlasCache[id] = im.decode ? im.decode().catch(() => {}).then(() => im) : Promise.resolve(im); }
+  return atlasCache[id];
+}
+let k = .333;
+function setScale() {
+  k = ui.clientWidth / 1170; ui.style.setProperty('--k', k);
+  if (curId) ui.style.height = (SD[curId].h * k) + 'px';
+}
+const px = v => `calc(var(--k)*${v}px)`;
+function box(d, x, y, w, h) { d.style.left = px(x); d.style.top = px(y); d.style.width = px(w); d.style.height = px(h); }
+function mkEl(D, s) {
+  const d = document.createElement('div'); d.className = 'el'; box(d, s.x, s.y, s.w, s.h);
+  const im = document.createElement('img'); im.src = D.atlas; im.alt = ''; im.draggable = false;
+  im.style.width = (D.aw / s.w * 100) + '%'; im.style.top = (-s.ay / s.h * 100) + '%';
+  d.appendChild(im); return d;
+}
+const iou = (a, b) => {
+  const x0 = Math.max(a.x, b.x), y0 = Math.max(a.y, b.y), x1 = Math.min(a.x + a.w, b.x + b.w), y1 = Math.min(a.y + a.h, b.y + b.h);
+  const i = Math.max(0, x1 - x0) * Math.max(0, y1 - y0); return i / (a.w * a.h + b.w * b.h - i);
+};
+let curId = null, curEls = [], token = 0;     // curEls : [{el, s}]  éléments actuellement à l'écran
+const EASE = 'cubic-bezier(.2,.8,.2,1)';
+
+async function go(id, opt = {}) {
+  const my = ++token, D = SD[id], S = SCREENS[id];
+  stopCamera(); if (!opt.keepRadar && !opt.only) stopRadar();
+  await loadAtlas(id); if (my !== token) return;
+  curId = id; ui.style.height = (D.h * k) + 'px';
+  const old = curEls.slice(), next = [], used = new Set(); let n = 0;
+  D.els.forEach((s, i) => {
+    if (opt.only && !opt.only.includes(i)) return;
+    // un élément déjà à l'écran, au même endroit ? -> il reste (identique) ou se fond dans le nouveau (modifié)
+    let best = null, bi = .45;
+    old.forEach(o => { if (used.has(o)) return; const v = iou(o.s, s); if (v > bi) { bi = v; best = o; } });
+    if (best && best.s.k === s.k && best.s.w === s.w) { used.add(best); next.push(best); return; }
+    const el = mkEl(D, s); ui.insertBefore(el, zonesEl);
+    if (best) {                                                       // même place, contenu différent : fondu enchaîné
+      used.add(best); el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 380, easing: 'ease-out' });
+      best.el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 380, easing: 'ease-out', fill: 'forwards' }).onfinish = () => best.el.remove();
+    } else {                                                          // nouvel élément : entrée en cascade (flou + glissement)
+      const small = s.w * s.h < 450000;
+      const from = { opacity: 0, transform: 'translateY(26px) scale(.985)' }; if (small) from.filter = 'blur(10px)';
+      const to = { opacity: 1, transform: 'none' }; if (small) to.filter = 'blur(0px)';
+      el.animate([from, to], { duration: 650, delay: 90 + (n++) * 60, easing: EASE, fill: 'backwards' });
+    }
+    next.push({ el, s });
+  });
+  if (!opt.only) old.forEach(o => {                                    // éléments qui disparaissent
+    if (used.has(o)) return;
+    o.el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-10px)' }], { duration: 220, easing: 'ease-in', fill: 'forwards' }).onfinish = () => o.el.remove();
+  });
+  curEls = opt.only ? old.filter(o => !used.has(o)).concat(next) : next;
+  if (!opt.only) buildZones(id);
+  if (!opt.only) { window.scrollTo(0, 0); if (S.radar) buildRadar(); if (S.camera) buildCamera(S.camera); }
+  setScale();
+}
+
+/* ---- zones cliquables + glow au toucher ---- */
+function buildZones(id) {
+  zonesEl.innerHTML = '';
+  for (const z of SCREENS[id].zones) {
+    const d = document.createElement('div'); d.className = 'zone'; box(d, z.x, z.y, z.w, z.h);
+    d.style.borderRadius = px(z.r != null ? z.r : z.h / 2);
+    d.innerHTML = '<div class="halo"></div><div class="rw"><div class="rip"></div></div>';
+    d.addEventListener('click', e => { if (z.quiet) return z.tap(); glow(d, z, e); later(170, z.tap); });   // le glow se voit avant le changement d'écran
+    zonesEl.appendChild(d);
   }
-  if (s.radar) buildRadar(L);
-  if (s.camera) buildCamera(L, s.camera);
-  if (layer) layer.remove();
-  app.insertBefore(L, document.getElementById('fx')); layer = L;
-  window.scrollTo(0, 0); fxResize();
+}
+function glow(d, z, e) {
+  const r = d.getBoundingClientRect(), x = (e.clientX || r.left + r.width / 2) - r.left, y = (e.clientY || r.top + r.height / 2) - r.top;
+  d.querySelector('.halo').animate([{ opacity: 1 }, { opacity: 0 }], { duration: 620, easing: 'ease-out' });
+  const rip = d.querySelector('.rip'); rip.style.left = x + 'px'; rip.style.top = y + 'px';
+  const sc = Math.max(r.width, r.height) / 20;
+  rip.animate([{ opacity: 1, transform: 'scale(.4)' }, { opacity: 0, transform: `scale(${sc})` }], { duration: 650, easing: 'cubic-bezier(.2,.7,.3,1)' });
+  const cx = z.x + z.w / 2, cy = z.y + z.h / 2;                         // l'élément touché « s'enfonce » un instant
+  curEls.forEach(o => { if (cx >= o.s.x && cx <= o.s.x + o.s.w && cy >= o.s.y && cy <= o.s.y + o.s.h && o.s.w * o.s.h < 1200000)
+    o.el.animate([{ transform: 'scale(1)' }, { transform: 'scale(.965)' }, { transform: 'scale(1)' }], { duration: 260, easing: 'ease-out' }); });
 }
 
 /* ======== RADAR (écrans 06A -> 06B) ======== */
 let radarRaf = 0, radarState = null;
-function buildRadar(L) {
-  const cv = document.createElement('canvas'); cv.className = 'sweep'; L.appendChild(cv);
-  const btn = new Image(); btn.className = 'over'; btn.src = 's06b_radar.png'; btn.style.clipPath = 'inset(87% 5% 5% 5%)'; L.appendChild(btn);  // « Balayage en cours… »
-  const full = new Image(); full.className = 'over'; full.src = 's06b_radar.png'; L.appendChild(full);                                            // écran 06B
-  radarState = { cv, btn, full, running: false };
+function buildRadar() {
+  const cv = document.createElement('canvas'); cv.className = 'sweep'; ui.insertBefore(cv, zonesEl);
+  radarState = { cv, running: false };
 }
-function drawSweep(cv, angle) {   // angle en degrés, 0 = nord, sens horaire. Coordonnées de l'image d'origine : 390 x 844
+function drawSweep(cv, angle) {   // angle en degrés, 0 = nord, sens horaire. Centre et rayon mesurés sur l'export Figma (1170 de large)
   const w = cv.clientWidth, h = cv.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
   if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
-  const ctx = cv.getContext('2d'), k = w / 390 * dpr, cx = 195 * k, cy = 480 * k, R = 128 * k;
+  const ctx = cv.getContext('2d'), u = w / 1170 * dpr, cx = 585 * u, cy = 1392 * u, R = 389 * u;
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
   ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
-  const alphaAt = d => d < 20 ? .27 - d * .0025 : d < 45 ? .22 - (d - 20) * .0048 : d < 110 ? .10 - (d - 45) * .00098 : 0;  // intensité mesurée sur votre maquette
+  const alphaAt = d => d < 20 ? .27 - d * .0025 : d < 45 ? .22 - (d - 20) * .0048 : d < 110 ? .10 - (d - 45) * .00098 : 0;
   const span = 110;
   if (ctx.createConicGradient) {                        // sillage en dégradé continu (navigateurs récents)
     const g = ctx.createConicGradient((angle - 90 - span) * Math.PI / 180, cx, cy);
@@ -130,14 +217,15 @@ function drawSweep(cv, angle) {   // angle en degrés, 0 = nord, sens horaire. C
     }
   }
   ctx.restore();
-  const t = (angle - 90) * Math.PI / 180;
-  ctx.strokeStyle = 'rgb(116,238,240)'; ctx.lineWidth = 2 * k; ctx.lineCap = 'round'; ctx.shadowColor = 'rgba(112,236,238,.9)'; ctx.shadowBlur = 8 * k;
+  const t = (angle - 90) * Math.PI / 180, kk = u;
+  ctx.strokeStyle = 'rgb(116,238,240)'; ctx.lineWidth = 6 * kk; ctx.lineCap = 'round'; ctx.shadowColor = 'rgba(112,236,238,.9)'; ctx.shadowBlur = 24 * kk;
   ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(t) * R, cy + Math.sin(t) * R); ctx.stroke();
-  ctx.shadowBlur = 0; ctx.fillStyle = 'rgb(126,243,243)'; ctx.beginPath(); ctx.arc(cx, cy, 5 * k, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0; ctx.fillStyle = 'rgb(126,243,243)'; ctx.beginPath(); ctx.arc(cx, cy, 15 * kk, 0, Math.PI * 2); ctx.fill();
 }
 function startRadar() {
   if (busy || !radarState) return; busy = true;
-  const rs = radarState; rs.btn.style.opacity = 1; rs.running = true;
+  const rs = radarState; rs.running = true;
+  go('s06b', { only: [6] });                                         // le bouton devient « Balayage en cours… »
   const t0 = performance.now(), total = 360 + RADAR.detectAngle; let detected = false;
   (function frame(now) {
     if (!rs.running) return;
@@ -145,32 +233,33 @@ function startRadar() {
     drawSweep(rs.cv, ang % 360);
     if (ang >= total && !detected) {
       detected = true;
-      rs.full.style.transition = 'opacity .28s'; rs.full.style.opacity = 1;                         // 06B : spécimen localisé
-      later(RADAR.afterDetect, () => { if (current === 's06a') { busy = false; go('s07'); } });
-      later(320, () => { rs.cv.style.display = 'none'; });
+      go('s06b', { keepRadar: true });                               // 06B : spécimen localisé (fondu enchaîné)
+      later(420, () => { rs.cv.style.display = 'none'; });
+      later(RADAR.afterDetect, () => { if (curId === 's06b') { busy = false; stopRadar(); go('s07'); } });
       return;
     }
     radarRaf = requestAnimationFrame(frame);
   })(performance.now());
 }
-function stopRadar() { cancelAnimationFrame(radarRaf); if (radarState) radarState.running = false; radarState = null; }
+function stopRadar() { cancelAnimationFrame(radarRaf); if (radarState) { radarState.running = false; radarState.cv.remove(); } radarState = null; }
 
 /* ======== CAMÉRA / SCAN QR (écran 02) ======== */
 let stream = null, camRaf = 0, cam = null;
-function buildCamera(L, box) {
-  const w = document.createElement('div'); w.className = 'camwrap';
-  w.style.cssText = `left:${box.l}%;top:${box.t}%;width:${box.w}%;height:${box.h}%`;
+function buildCamera(b) {
+  const w = document.createElement('div'); w.className = 'camwrap'; box(w, b.x, b.y, b.w, b.h);
   w.innerHTML = '<video playsinline muted autoplay></video><div class="scanline"></div><div class="camdone"><div>QR code détecté<br><small></small></div></div>';
-  L.appendChild(w);
-  const n = document.createElement('div'); n.className = 'camnote'; n.style.top = '72.5%'; L.appendChild(n);
+  ui.insertBefore(w, zonesEl);
+  const n = document.createElement('div'); n.className = 'camnote'; n.style.top = px(1745); n.style.position = 'absolute'; ui.insertBefore(n, zonesEl);
   cam = { wrap: w, video: w.querySelector('video'), done: w.querySelector('.camdone'), note: n, finished: false };
 }
-function stopCamera() { cancelAnimationFrame(camRaf); if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; cam = null; }
+function stopCamera() {
+  cancelAnimationFrame(camRaf); if (stream) stream.getTracks().forEach(t => t.stop()); stream = null;
+  if (cam) { cam.wrap.remove(); cam.note.remove(); } cam = null;
+}
 function scanDone(text) {
   if (!cam || cam.finished) return; cam.finished = true; cancelAnimationFrame(camRaf);
   cam.wrap.style.display = 'block'; cam.done.style.display = 'flex'; cam.done.querySelector('small').textContent = text;
-  if (navigator.vibrate) navigator.vibrate(80);
-  later(900, () => { if (current === 's02') go('s03'); });
+  later(900, () => { if (curId === 's02') go('s03'); });
 }
 function fakeScan() { if (cam) scanDone('(scan simulé)'); }
 function startCamera() {
@@ -197,28 +286,29 @@ function startCamera() {
 }
 function stopTracks() { if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; }
 
-/* ======== PARTICULES + PARALLAX ======== */
-const fx = document.getElementById('fx'), fctx = fx.getContext('2d');
+/* ======== PARTICULES + PROFONDEUR (le fond bouge avec l'inclinaison, pas l'interface) ======== */
+const fx = document.getElementById('fx'), fctx = fx.getContext('2d'), bgin = document.getElementById('bgin');
 let P = [], tilt = { x: 0, y: 0 }, tiltT = { x: 0, y: 0 }, beta0 = null, lastT = performance.now();
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 function fxResize() {
-  const w = app.clientWidth, h = app.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = innerWidth, h = innerHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
   fx.style.width = w + 'px'; fx.style.height = h + 'px'; fx.width = Math.round(w * dpr); fx.height = Math.round(h * dpr);
   const n = Math.max(30, Math.min(130, Math.round(w * h / 9000)));
   P = Array.from({ length: n }, () => { const d = [0.3, 0.6, 1][Math.floor(Math.random() * 3)];
     return { x: Math.random(), y: Math.random(), d, s: .6 + 1.8 * d * (.6 + Math.random() * .6), a: .1 + .4 * d * Math.random(),
              v: 4 + 11 * d * (.5 + Math.random()), ph: Math.random() * 6.28, sw: 4 + 7 * d, bokeh: Math.random() < .25 }; });
+  setScale();
 }
 function fxFrame(now) {
   const dt = Math.min((now - lastT) / 1000, .05); lastT = now;
-  const w = fx.clientWidth, h = fx.clientHeight, dpr = fx.width / Math.max(w, 1);
+  const w = fx.clientWidth, h = fx.clientHeight, dpr = fx.width / Math.max(w, 1), sc = window.scrollY || 0;
   tilt.x += (tiltT.x - tilt.x) * .08; tilt.y += (tiltT.y - tilt.y) * .08;
+  bgin.style.transform = `translate3d(${(-tilt.x * FX.tiltBg[0]).toFixed(2)}px,${(-tilt.y * FX.tiltBg[1] - sc * .04).toFixed(2)}px,0)`;   // le fond glisse à l'inverse : effet de profondeur
   fctx.setTransform(dpr, 0, 0, dpr, 0, 0); fctx.clearRect(0, 0, w, h);
-  const sc = window.scrollY || 0;
   for (const p of P) {
     p.y -= p.v * dt / h; if (p.y < -0.02) { p.y = 1.02; p.x = Math.random(); }
-    const x = p.x * w + Math.sin(now / 1800 + p.ph) * p.sw + tilt.x * 26 * p.d;
-    let y = p.y * h + tilt.y * 18 * p.d - (p.d - .6) * .35 * sc;                  // les plus proches défilent un peu plus vite : profondeur
+    const x = p.x * w + Math.sin(now / 1800 + p.ph) * p.sw + tilt.x * FX.tiltParticles[0] * p.d;
+    let y = p.y * h + tilt.y * FX.tiltParticles[1] * p.d - (p.d - .6) * .35 * sc;
     y = ((y % h) + h) % h;
     const tw = .65 + .35 * Math.sin(now / 900 + p.ph * 2), r = p.bokeh ? p.s * 4 : p.s;
     fctx.fillStyle = `rgba(150,232,240,${(p.bokeh ? p.a * .3 : p.a) * tw})`;
@@ -234,13 +324,15 @@ function onOrient(e) {
   tiltT.x = Math.max(-1, Math.min(1, e.gamma / 30)); tiltT.y = Math.max(-1, Math.min(1, (e.beta - beta0) / 25));
 }
 let motionAsked = false;
-addEventListener('pointerdown', () => {            // iPhone : l'accès aux capteurs de mouvement se demande lors d'un toucher
+addEventListener('click', () => {            // iPhone : l'accès aux capteurs de mouvement se demande lors d'un toucher
   if (motionAsked) return; motionAsked = true;
   if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission)
     DeviceOrientationEvent.requestPermission().then(r => { if (r === 'granted') addEventListener('deviceorientation', onOrient); }).catch(() => {});
   else addEventListener('deviceorientation', onOrient);
-}, { once: false });
-new ResizeObserver(fxResize).observe(app);
+});
+new ResizeObserver(() => { setScale(); }).observe(ui);
 
-go(START);
+fxResize(); go(START);
+Object.keys(SD).forEach((id, i) => later(600 + i * 250, () => loadAtlas(id)));     // préchargement des autres écrans
+window.__dbg = () => ({ curId, els: curEls.length });
 </script></body></html>

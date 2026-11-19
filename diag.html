@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Diagnostic des vidéos</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body{margin:0;padding:24px;background:#04121b;color:#cfe9f2;font:16px/1.5 system-ui,sans-serif}
+  h1{font-size:22px;margin:0 0 4px} p{color:#8fb3c0;margin:4px 0 18px}
+  table{border-collapse:collapse;width:100%;max-width:980px}
+  td,th{padding:9px 10px;border-bottom:1px solid #12303d;text-align:left;vertical-align:top;font-size:15px}
+  .ok{color:#7ff0b0}.ko{color:#ff8e8e}.wait{color:#9bb}
+  code{background:#0b2330;padding:1px 6px;border-radius:4px}
+  .box{margin-top:22px;padding:14px 16px;background:#0b2330;border-radius:10px;max-width:940px}
+</style></head><body>
+<h1>Diagnostic des vidéos</h1>
+<p>Cette page vérifie, pour chaque vidéo, si le site la trouve et si le fichier est complet. Rien à configurer : ouvrez-la simplement.</p>
+<table id="t"><tr><th>Vidéo</th><th>Résultat</th><th>Détail</th></tr></table>
+<div class="box" id="sum">Vérification en cours…</div>
+<script>
+const MIN = { attente: 1.5e6, start: 3e6, loop_fade: 4e6, allumage: 1e6, loop_color: 5e6, eat: 3e6, end: 3e6 };   // tailles minimales attendues (octets)
+const NAMES = Object.keys(MIN), t = document.getElementById('t'); let bad = 0, done = 0;
+function row(n) { const tr = document.createElement('tr'); tr.innerHTML = `<td><code>videos/${n}.mp4</code></td><td class="wait">…</td><td></td>`; t.appendChild(tr); return tr; }
+function fin(tr, ok, msg, detail) { tr.children[1].className = ok ? 'ok' : 'ko'; tr.children[1].textContent = msg; tr.children[2].innerHTML = detail || ''; if (!ok) bad++; if (++done === NAMES.length) summary(); }
+async function check(n) {
+  const tr = row(n), url = `videos/${n}.mp4`;
+  try {
+    const r = await fetch(url, { cache: 'no-store' });
+    if (r.status === 404) {
+      // on cherche si le fichier existe sous un autre nom (majuscules…)
+      const alts = [n[0].toUpperCase() + n.slice(1), n.toUpperCase(), n.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join('_')];
+      let found = '';
+      for (const a of alts) { try { const r2 = await fetch(`videos/${a}.mp4`, { method: 'HEAD', cache: 'no-store' }); if (r2.ok) { found = a; break; } } catch (e) {} }
+      return fin(tr, false, '✗ introuvable (404)', found ? `Un fichier existe sous le nom <code>${found}.mp4</code> : il faut le renommer en <code>${n}.mp4</code> (tout en minuscules).` : `Le fichier n'est pas dans le dossier <code>videos</code> du dépôt, ou son nom est différent. Il doit s'appeler exactement <code>${n}.mp4</code>.`);
+    }
+    if (!r.ok) return fin(tr, false, '✗ erreur ' + r.status, 'Le site a répondu autrement que par le fichier.');
+    const buf = await r.arrayBuffer(), b = new Uint8Array(buf), size = b.length;
+    const head = new TextDecoder().decode(b.slice(0, 200));
+    const mb = (size / 1048576).toFixed(1) + ' Mo';
+    if (head.startsWith('version https://git-lfs')) return fin(tr, false, '✗ fichier « LFS »', 'Ce n\'est qu\'un pointeur de quelques octets, pas la vidéo. Renvoyez la vidéo par l\'envoi normal de fichiers.');
+    if (/<html|<!doctype/i.test(head)) return fin(tr, false, '✗ ce n\'est pas une vidéo', 'Le site renvoie une page web à la place du fichier.');
+    const sig = new TextDecoder().decode(b.slice(4, 8));
+    if (sig !== 'ftyp') return fin(tr, false, '✗ fichier abîmé (' + mb + ')', 'Le fichier ne commence pas comme une vidéo MP4 : il a sans doute été mal envoyé. Renvoyez-le.');
+    if (size < MIN[n]) return fin(tr, false, '✗ fichier incomplet (' + mb + ')', 'Le fichier est trop petit : l\'envoi a été interrompu. Renvoyez-le (il doit faire environ ' + (MIN[n] / 1048576 * 1.6).toFixed(0) + ' Mo ou plus).');
+    // le navigateur sait-il le lire ?
+    const v = document.createElement('video'); v.muted = true; v.preload = 'metadata';
+    const ok = await new Promise(res => { v.onloadedmetadata = () => res('ok'); v.onerror = () => res('err'); setTimeout(() => res('timeout'), 8000); v.src = URL.createObjectURL(new Blob([buf], { type: 'video/mp4' })); });
+    if (ok === 'ok') return fin(tr, true, '✓ OK (' + mb + ')', 'Durée ' + v.duration.toFixed(1) + ' s, ' + v.videoWidth + '×' + v.videoHeight + '.');
+    fin(tr, false, '✗ illisible (' + mb + ')', 'Le fichier est présent mais le navigateur ne peut pas le lire. Renvoyez-le depuis le dossier fourni.');
+  } catch (e) { fin(tr, false, '✗ erreur', String(e)); }
+}
+function summary() {
+  const s = document.getElementById('sum');
+  s.innerHTML = bad === 0 ? '<b class="ok">Les 7 vidéos sont bonnes.</b> Si l\'écran affiche encore une erreur, rechargez-le avec Cmd + Maj + R (vider le cache).'
+    : `<b class="ko">${bad} vidéo(s) à corriger.</b> Corrigez ce qui est indiqué en rouge, attendez 1 à 2 minutes que GitHub publie, puis rechargez cette page.`;
+}
+NAMES.forEach(check);
+</script></body></html>

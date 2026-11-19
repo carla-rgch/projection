@@ -40,20 +40,21 @@
 <script>
 /* ====== À MODIFIER SI BESOIN ======
    loop:true   -> la vidéo tourne en boucle (sans à-coup) jusqu'à la prochaine commande
+   pre         -> durée (s) de l'amorce placée au début des fichiers de boucle (6 images) : sert à relayer le lecteur sans pause
    next:"..."  -> à la fin de la vidéo, on enchaîne tout de suite sur celle-ci
    beam        -> faisceau de lumière : 'flicker' (s'allume en clignotant), 'on', 'fadeout'; sans valeur = éteint */
 const CLIPS = {
-  attente:    { src: 'videos/attente.mp4',    loop: true },
+  attente:    { src: 'videos/attente.mp4',    loop: true, pre: 0.2 },
   start:      { src: 'videos/start.mp4',      next: 'loop_fade' },
-  loop_fade:  { src: 'videos/loop_fade.mp4',  loop: true },
+  loop_fade:  { src: 'videos/loop_fade.mp4',  loop: true, pre: 0.2002 },
   allumage:   { src: 'videos/allumage.mp4',   next: 'loop_color', beam: 'flicker' },
-  loop_color: { src: 'videos/loop_color.mp4', loop: true, beam: 'on' },
+  loop_color: { src: 'videos/loop_color.mp4', loop: true, pre: 0.2002, beam: 'on' },
   eat:        { src: 'videos/eat.mp4',        next: 'loop_color', beam: 'on' },
   end:        { src: 'videos/end.mp4',        next: 'attente',    beam: 'fadeout' },
 };
 /* message reçu du téléphone -> vidéo à lancer */
 const ACTIONS = { attente: 'attente', start: 'start', faisceau: 'allumage', eat: 'eat', end: 'end' };
-const LEAD = 0.06;   // secondes : on lance la vidéo suivante juste avant la fin de la précédente
+const LEAD = 0.06;   // secondes : on lance la vidéo suivante juste avant la fin de la précédente (vidéos non bouclées)
 /* =================================== */
 
 const q = new URLSearchParams(location.search);
@@ -66,12 +67,17 @@ for (const [name, c] of Object.entries(CLIPS)) {
   for (let i = 0; i < (c.loop ? 2 : 1); i++) {          // les boucles ont 2 lecteurs, utilisés en alternance
     const v = document.createElement('video');
     v.src = c.src; v.preload = 'auto'; v.playsInline = true; v.loop = false;
+    v._t0 = (c.loop && i === 0) ? c.pre : 0;               // position de départ : on saute l'amorce à la première entrée dans une boucle
     v.addEventListener('ended', () => { if (v === curEl) advance(); });
-    v.addEventListener('error', () => st.textContent = 'Erreur vidéo ' + name + ' : ' + (v.error && v.error.message));
+    v.addEventListener('error', () => {
+      const m = (v.error && v.error.message) || '';
+      st.textContent = 'Erreur vidéo ' + name + ' : ' + m + ' (' + c.src + ')';
+      fetch(c.src, { method: 'HEAD', cache: 'no-store' }).then(r => { st.textContent += ' — réponse du site : ' + r.status + (r.status === 404 ? ' = fichier introuvable, voir diag.html' : ''); }).catch(() => {});
+    });
     stage.appendChild(v); els[name].push(v); ALL.push(v);
   }
 }
-let ready = false, cur = null, curEl = null, idx = 0, queue = [], z = 1, advanced = false;
+let ready = false, cur = null, curEl = null, idx = 0, queue = [], z = 1, advanced = false, pending = false;
 
 /* ---------- faisceau ---------- */
 let beamAnim = null, beamState = 'off';
@@ -110,23 +116,24 @@ function whenFirstFrame(el, cb) {
 function reveal(el) {
   el.style.zIndex = ++z; el.classList.add('on');
   setTimeout(() => {
-    for (const o of ALL) if (o !== el && o.classList.contains('on')) { o.classList.remove('on'); o.pause(); o.currentTime = 0; }
+    for (const o of ALL) if (o !== el && o.classList.contains('on')) { o.classList.remove('on'); o.pause(); o.currentTime = 0; o._ready = false; }
   }, 80);
 }
-function rewind(v) { if (Math.abs(v.currentTime) > 0.01) v.currentTime = 0; }
+function rewind(v, t) { t = (t == null) ? v._t0 : t; if (Math.abs(v.currentTime - t) > 0.01) v.currentTime = t; }
 function startClip(name) {
   const c = CLIPS[name]; stage.style.transition = 'none'; stage.style.opacity = 1;
-  cur = name; idx = 0; curEl = els[name][0]; advanced = false;
+  for (const o of ALL) if (!o.classList.contains('on') && !o.paused) o.pause();    // un lecteur de relais resté en route
+  cur = name; idx = 0; curEl = els[name][0]; advanced = false; pending = false;
   rewind(curEl); curEl.play().catch(e => st.textContent = 'Lecture bloquée : ' + e.message);
   whenFirstFrame(curEl, () => reveal(curEl));
   setBeam(c.beam || 'off');
-  if (c.loop) rewind(els[name][1]);                      // prépare le 2e lecteur
+  if (c.loop) rewind(els[name][1], 0);                   // prépare le 2e lecteur (il démarre au tout début, amorce comprise)
   if (c.next) rewind(els[c.next][0]);                    // prépare la vidéo suivante
   st.textContent = 'vidéo : ' + name;
 }
-function swapLoop() {
-  idx = 1 - idx; const other = els[cur][idx]; curEl = other; advanced = false;
-  rewind(other); other.play().catch(() => {});
+function swapLoop() {                                      // secours : la boucle est arrivée au bout sans relais anticipé
+  idx = 1 - idx; const other = els[cur][idx]; curEl = other; advanced = false; pending = false;
+  rewind(other, CLIPS[cur].pre); other.play().catch(() => {});
   whenFirstFrame(other, () => reveal(other));
 }
 function advance() {
@@ -135,14 +142,25 @@ function advance() {
   if (c.loop) { if (queue.length) startClip(queue.shift()); else swapLoop(); }
   else { const n = queue.shift() || c.next; if (n) startClip(n); }
 }
+/* Relais sans pause : les fichiers de boucle commencent par une amorce (les 6 dernières images de la boucle).
+   Quand le lecteur A approche de la fin, le lecteur B démarre au début de son amorce ; dès que B montre la même image que A, on passe sur B. */
 function tick() {
-  if (ready && curEl && curEl.duration && curEl.duration - curEl.currentTime <= LEAD) advance();
+  if (ready && curEl && curEl.duration) {
+    const c = CLIPS[cur], rem = curEl.duration - curEl.currentTime;
+    if (c.loop && !queue.length) {
+      const other = els[cur][1 - idx];
+      if (!pending && rem <= c.pre + 0.04 && rem > 0.01) { pending = true; rewind(other, 0); other.play().catch(() => {}); }
+      if (pending && other.currentTime > 0.001 && other.currentTime + rem >= c.pre - 0.004) {
+        idx = 1 - idx; curEl = other; pending = false; advanced = false; reveal(other);
+      }
+    } else if (rem <= LEAD) advance();
+  }
   requestAnimationFrame(tick);
 }
 function idle() {
   queue = []; cur = null; curEl = null; setBeam('off');
   stage.style.transition = 'opacity .4s'; stage.style.opacity = 0;
-  setTimeout(() => { if (!cur) for (const v of ALL) { v.classList.remove('on'); v.pause(); v.currentTime = 0; } }, 450);
+  setTimeout(() => { if (!cur) for (const v of ALL) { v.classList.remove('on'); v.pause(); v.currentTime = v._t0; } }, 450);
   st.textContent = 'en attente';
 }
 function act(cmd) {
@@ -154,7 +172,7 @@ function act(cmd) {
 }
 document.getElementById('start').addEventListener('click', () => {
   document.getElementById('start').style.display = 'none'; ready = true;
-  for (const v of ALL) { v.muted = true; v.play().then(() => { v.pause(); v.currentTime = 0; v.muted = false; }).catch(() => { v.muted = false; }); }
+  for (const v of ALL) { v.muted = true; v.play().then(() => { v.pause(); v.currentTime = v._t0; v.muted = false; }).catch(() => { v.muted = false; }); }
   requestAnimationFrame(tick); idle();
 });
 
@@ -171,5 +189,5 @@ addEventListener('keydown', e => {
   const k = { '1': 'attente', '2': 'start', '3': 'faisceau', '4': 'eat', '5': 'end', '0': 'reset' }[e.key]; if (k) act(k);
   if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
 });
-window.__dbg = () => ({ cur, pending: queue.join('>'), beamState, on: ALL.filter(v => v.classList.contains('on')).map(v => v.src.split('/').pop()) });
+window.__dbg = () => ({ cur, pending: queue.join('>'), swap: pending, idx, beamState, on: ALL.filter(v => v.classList.contains('on')).map(v => v.src.split('/').pop()) });
 </script></body></html>
