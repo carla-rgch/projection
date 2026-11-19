@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Projection</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  video{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;transition:opacity .35s ease}
+  video.on{opacity:1}
+  #start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#9fd8e6;
+         font:22px/1.6 system-ui,sans-serif;text-align:center;cursor:pointer;background:#02101a}
+  #status{position:fixed;left:12px;bottom:10px;color:#3d6b78;font:12px system-ui,sans-serif}
+</style></head><body>
+<video id="v" playsinline preload="auto"></video>
+<div id="start"><div>Cliquez ici une fois, puis touche F pour le plein écran.<br>
+<span id="relay" style="font-size:16px;color:#7fb">Connexion au relais…</span></div></div>
+<div id="status"></div>
+<script src="config.js"></script>
+<script>
+const q = new URLSearchParams(location.search);
+const RELAY = q.get('relay') || 'https://ntfy.sh';
+const v = document.getElementById('v'), st = document.getElementById('status'), rl = document.getElementById('relay');
+v.src = q.get('src') || 'video.mp4';
+let ready = false;
+function play() {
+  if (!ready) { st.textContent = 'Pas encore activé : cliquez sur la page'; return; }
+  v.currentTime = 0; v.classList.add('on');
+  v.play().catch(e => st.textContent = 'Lecture bloquée : ' + e.message);
+}
+function stop() { v.classList.remove('on'); setTimeout(() => { v.pause(); v.currentTime = 0; }, 400); }
+document.getElementById('start').addEventListener('click', () => {
+  document.getElementById('start').style.display = 'none'; ready = true;
+  v.play().then(() => { v.pause(); v.currentTime = 0; }).catch(() => {});
+});
+v.addEventListener('ended', stop);
+v.addEventListener('error', () => st.textContent = 'Erreur vidéo : ' + (v.error && v.error.message));
+const es = new EventSource(RELAY + '/' + window.TOPIC + '/sse');
+es.onopen = () => { rl.textContent = '✓ Relais connecté, prêt.'; st.textContent = 'connecté'; };
+es.onerror = () => { rl.textContent = 'Relais injoignable : vérifiez internet'; st.textContent = 'connexion perdue, nouvel essai…'; };
+es.onmessage = e => {
+  let d; try { d = JSON.parse(e.data); } catch { return; }
+  if (d.event && d.event !== 'message') return;
+  const name = (d.message || '').trim();
+  st.textContent = 'message : ' + name;
+  if (name === 'play') play();
+  if (name === 'stop') stop();
+};
+addEventListener('keydown', e => {
+  if (e.key === 'p') play();
+  if (e.key === 'Escape') stop();
+  if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+});
+</script></body></html>
