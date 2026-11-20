@@ -18,6 +18,15 @@
   /* interface projetée (PNG) : UI-Attente au repos, UI pendant la mission */
   .ui{position:absolute;inset:0;width:100%;height:100%;z-index:4;opacity:0;transition:opacity .45s ease;pointer-events:none}
   .ui.on{opacity:1}
+  /* textes animés (écriture numérique + reflet lumineux) */
+  .fx{position:absolute;inset:0;z-index:5;pointer-events:none}
+  .tx{position:absolute}
+  .tx .rev{position:absolute;inset:0;overflow:hidden;clip-path:inset(0 100% 0 0)}
+  .tx img{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .tx .sh{position:absolute;inset:0;-webkit-mask-size:100% 100%;mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
+          background:linear-gradient(100deg,rgba(190,248,255,0) 38%,rgba(210,252,255,.95) 50%,rgba(190,248,255,0) 62%) 80% 0/300% 100% no-repeat;opacity:0}
+  .tx .cur{position:absolute;top:6%;height:88%;width:12px;left:0;background:#a8f0ff;box-shadow:0 0 10px 2px rgba(120,235,255,.8);opacity:0}
+  #fxscan .tx .rev{clip-path:none}
   #start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#9fd8e6;
          font:22px/1.6 system-ui,sans-serif;text-align:center;cursor:pointer;background:#02101a;z-index:99}
   #status{position:fixed;left:12px;bottom:10px;color:#3d6b78;font:12px system-ui,sans-serif;z-index:100;max-width:90vw}
@@ -26,20 +35,21 @@
   <div id="fallback"></div>
   <div id="bgstage"></div>
   <div id="stage"></div>
-  <!-- Faisceau de lumière (coordonnées 1600 x 900) : désactivé par défaut, ajoutez ?beam=1 à l'adresse pour l'essayer -->
+  <!-- Faisceau des phares du sous-marin (coordonnées 1600 x 900) : actif par défaut, ajoutez ?beam=0 à l'adresse pour le couper -->
   <svg id="beam" viewBox="0 0 1600 900" preserveAspectRatio="none" aria-hidden="true">
     <defs>
-      <linearGradient id="cone" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#c8f0ff" stop-opacity=".30"/><stop offset=".6" stop-color="#c8f0ff" stop-opacity=".15"/><stop offset="1" stop-color="#c8f0ff" stop-opacity=".04"/>
+      <linearGradient id="cone" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#9ff0ff" stop-opacity=".55"/><stop offset=".45" stop-color="#7fe6ff" stop-opacity=".26"/><stop offset="1" stop-color="#6fd8ff" stop-opacity=".04"/>
       </linearGradient>
-      <radialGradient id="pool"><stop offset="0" stop-color="#aee2ff" stop-opacity=".30"/><stop offset="1" stop-color="#aee2ff" stop-opacity="0"/></radialGradient>
-      <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="34"/></filter>
+      <radialGradient id="pool"><stop offset="0" stop-color="#8ff0ff" stop-opacity=".42"/><stop offset=".55" stop-color="#5fd6ff" stop-opacity=".14"/><stop offset="1" stop-color="#5fd6ff" stop-opacity="0"/></radialGradient>
+      <filter id="soft" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="38"/></filter>
     </defs>
-    <polygon points="350,-120 430,-120 900,640 150,640" fill="url(#cone)" filter="url(#soft)"/>
-    <ellipse cx="760" cy="445" rx="600" ry="190" fill="url(#pool)"/>
+    <polygon points="-60,380 -60,520 1900,-80 1900,980" fill="url(#cone)" filter="url(#soft)"/>
+    <ellipse cx="530" cy="465" rx="330" ry="250" fill="url(#pool)"/>
   </svg>
-  <img class="ui on" id="ui_attente" src="ui_attente.png" alt="">
-  <img class="ui" id="ui" src="ui.png" alt="">
+  <img class="ui" id="ui_base" src="fx/base.png" alt="">
+  <div class="fx" id="fxui"></div>
+  <div class="fx" id="fxscan"></div>
 </div>
 <div id="start"><div>Cliquez ici une fois, puis touche F pour le plein écran.<br>
 <span id="relay" style="font-size:16px;color:#7fb">Connexion au relais…</span></div></div>
@@ -70,13 +80,67 @@ const LEAD = 0.06;   // secondes : on lance la vidéo suivante juste avant la fi
 
 const q = new URLSearchParams(location.search);
 const RELAY = q.get('relay') || 'https://ntfy.sh';
-const BEAM_ON = q.get('beam') === '1';
+const BEAM_ON = q.get('beam') !== '0';
 const st = document.getElementById('status'), rl = document.getElementById('relay');
 const stage = document.getElementById('stage'), bgstage = document.getElementById('bgstage'), beam = document.getElementById('beam');
-const uiA = document.getElementById('ui_attente'), uiB = document.getElementById('ui');
+const uiBase = document.getElementById('ui_base');
 
-/* ---------- interface PNG ---------- */
-function setUi(s) { uiA.classList.toggle('on', s === 'attente'); uiB.classList.toggle('on', s === 'ui'); }
+/* ---------- interface PNG + textes animés ---------- */
+const ZN = {"hl": {"x": 66, "y": 68, "w": 460, "h": 36}, "hr": {"x": 1592, "y": 68, "w": 270, "h": 36}, "c": {"x": 538, "y": 484, "w": 844, "h": 47}, "s_tl": {"x": 70, "y": 73, "w": 452, "h": 27}, "s_tr": {"x": 1596, "y": 73, "w": 260, "h": 27}, "s_bl": {"x": 70, "y": 983, "w": 239, "h": 35}, "s_br": {"x": 1435, "y": 991, "w": 429, "h": 27}};
+function mkTx(parent, name, withImg) {                    // zone de texte, positionnée en pourcentage de l'image 1920 x 1080
+  const z = ZN[name], box = document.createElement('div'); box.className = 'tx';
+  box.style.cssText = `left:${z.x / 19.2}%;top:${z.y / 10.8}%;width:${z.w / 19.2}%;height:${z.h / 10.8}%`;
+  const rev = document.createElement('div'); rev.className = 'rev'; box.appendChild(rev);
+  if (withImg) { const im = document.createElement('img'); im.src = 'fx/' + name + '.png'; rev.appendChild(im); }
+  const sh = document.createElement('div'); sh.className = 'sh'; const m = 'url(fx/' + name + '.png)'; sh.style.webkitMaskImage = m; sh.style.maskImage = m; rev.appendChild(sh);
+  const cur = document.createElement('div'); cur.className = 'cur'; box.appendChild(cur);
+  parent.appendChild(box); return { box, rev, sh, cur, anims: [], n: Math.max(6, Math.round(z.w / 17)), w: z.w };
+}
+function stopTx(t) { t.anims.forEach(a => a.cancel()); t.anims = []; t.rev.style.clipPath = 'inset(0 100% 0 0)'; t.sh.style.opacity = 0; t.cur.style.opacity = 0; }
+function typeTx(t, delay, blink) {                         // écriture lettre à lettre, curseur numérique, puis reflet qui passe de temps en temps
+  stopTx(t); const dur = t.n * 42, steps = 'steps(' + t.n + ', end)', cw = 12 / t.w * 100;
+  t.anims.push(t.rev.animate([{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)' }], { duration: dur, delay, easing: steps, fill: 'forwards' }));
+  const c = t.cur.animate([{ left: '0%', opacity: 1 }, { left: (100 - cw) + '%', opacity: 1 }], { duration: dur, delay, easing: steps, fill: 'forwards' });
+  t.anims.push(c);
+  c.onfinish = () => { if (!t.anims.includes(c)) return;
+    t.anims.push(t.cur.animate([{ opacity: 1 }, { opacity: 1, offset: .5 }, { opacity: 0, offset: .5 }, { opacity: 0 }], { duration: 520, iterations: blink ? Infinity : 3, fill: 'forwards' })); };
+  glint(t, delay + dur + 900, 5200);
+}
+function glint(t, delay, every) {                          // léger gradient lumineux qui passe sur la typographie
+  t.sh.style.opacity = 1;
+  t.anims.push(t.sh.animate([{ backgroundPosition: '80% 0' }, { backgroundPosition: '20% 0' }], { duration: 1100, delay, endDelay: every, iterations: Infinity, easing: 'ease-in-out' }));
+}
+const fxui = document.getElementById('fxui'), fxscan = document.getElementById('fxscan');
+const T = { hl: mkTx(fxui, 'hl', true), hr: mkTx(fxui, 'hr', true), c: mkTx(fxui, 'c', true) };
+const S = ['s_tl', 's_tr', 's_bl', 's_br'].map(n => mkTx(fxscan, n, false));
+let uiState = null;
+function setUi(s) {
+  const prev = uiState; if (s === prev) return; uiState = s;
+  const hud = s === 'attente' || s === 'ui', hudPrev = prev === 'attente' || prev === 'ui';
+  uiBase.classList.toggle('on', hud);
+  if (hud && !hudPrev) { typeTx(T.hl, 200); typeTx(T.hr, 450); } else if (!hud) { stopTx(T.hl); stopTx(T.hr); }
+  if (s === 'attente') typeTx(T.c, 700, true); else stopTx(T.c);
+  if (s === 'scan') S.forEach((t, i) => { stopTx(t); t.rev.style.clipPath = 'none'; glint(t, 300 + i * 220, 600); }); else S.forEach(stopTx);
+}
+
+/* ---------- sons (Web Audio : démarrent au clic « activer ») ---------- */
+const SND = { ambiance: 'sons/ambiance.mp3', creature: 'sons/creature.mp3', lazer: 'sons/lazer.mp3' }, VOL = { ambiance: 0.55, creature: 1, lazer: 0.9 };
+let AC = null; const buf = {}, live = new Set();
+async function loadSounds() {
+  try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
+  AC.resume().catch(() => {});
+  for (const [k, u] of Object.entries(SND)) {
+    fetch(u).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(b => AC.decodeAudioData(b)).then(d => { buf[k] = d; if (k === 'ambiance') playSound('ambiance', 0, true); })
+      .catch(() => { st.textContent = 'Son introuvable : ' + u + ' (voir diag.html)'; });
+  }
+}
+function playSound(k, delay, loop) {
+  if (!AC || !buf[k]) return null;
+  const s = AC.createBufferSource(), g = AC.createGain(); s.buffer = buf[k]; s.loop = !!loop; g.gain.value = VOL[k] || 1;
+  s.connect(g); g.connect(AC.destination); s.start(AC.currentTime + (delay || 0)); if (!loop) { live.add(s); s.onended = () => live.delete(s); }
+  return s;
+}
+function stopOneShots() { for (const s of live) { try { s.stop(); } catch {} } live.clear(); }
 
 /* ---------- vidéos ---------- */
 function mkVideo(src, parent, label, onerr) {
@@ -108,16 +172,21 @@ function bgError(v) {
   if (bg.src + 1 < BG.src.length) { bg.src++; bg.els.forEach(e => { e.src = BG.src[bg.src]; e.load(); }); if (ready) bgStart(); }
   else { bg.ok = false; bg.els.forEach(e => e.remove()); bg.els = []; st.textContent = 'Fond BG introuvable (videos/bg.mp4) : fond de secours affiché'; }
 }
-for (let i = 0; i < 2; i++) { const v = mkVideo(BG.src[0], bgstage, 'bg', bgError); v._t0 = i === 0 ? BG.pre : 0; bg.els.push(v); }
-function bgShow(el) { el.classList.add('on'); for (const o of bg.els) if (o !== el && o.classList.contains('on')) { o.classList.remove('on'); setTimeout(() => { if (!o.classList.contains('on')) { o.pause(); o.currentTime = 0; } }, 80); } }
-function bgStart() { if (!bg.ok || !bg.els.length) return; const v = bg.els[0]; bg.idx = 0; bg.pending = false; v.currentTime = v._t0; v.play().catch(() => {}); whenFirstFrame(v, () => bgShow(v)); }
+for (let i = 0; i < 2; i++) { const v = mkVideo(BG.src[0], bgstage, 'bg', bgError); v._t0 = 0; bg.els.push(v); }
+const BGFADE = 1.5;                                        // secondes : fondu enchaîné entre la fin et le début du fond (il ne se referme pas tout seul)
+let bgz = 1;
+function bgShow(el, fade) {                                // fade : fondu depuis transparent ; sinon apparition immédiate
+  el.style.zIndex = ++bgz; el.style.transition = fade ? 'opacity ' + BGFADE + 's linear' : 'none'; el.classList.add('on');
+  const old = bg.els.filter(o => o !== el && o.classList.contains('on'));
+  setTimeout(() => { for (const o of old) { o.style.transition = 'none'; o.classList.remove('on'); o.pause(); o.currentTime = 0; } }, fade ? BGFADE * 1000 + 60 : 80);
+}
+function bgStart() { if (!bg.ok || !bg.els.length) return; const v = bg.els[0]; bg.idx = 0; bg.pending = false; v.currentTime = 0; v.play().catch(() => {}); whenFirstFrame(v, () => bgShow(v)); }
 function bgTick() {
   if (!bg.ok || bg.els.length < 2) return;
   const a = bg.els[bg.idx], b = bg.els[1 - bg.idx]; if (!a.duration) return;
-  const rem = a.duration - a.currentTime, pre = BG.pre;
-  if (!bg.pending && rem <= pre + 0.04 && rem > 0.005) { bg.pending = true; if (b.currentTime > 0.01) b.currentTime = 0; b.play().catch(() => {}); }
-  if (bg.pending && b.currentTime > 0.001 && b.currentTime + rem >= pre - 0.004) { bg.idx = 1 - bg.idx; bg.pending = false; bgShow(b); }
-  if (a.ended && !bg.pending) { bg.pending = true; if (b.currentTime > 0.01) b.currentTime = 0; b.play().catch(() => {}); }   // secours
+  const rem = a.duration - a.currentTime;
+  if (!bg.pending && rem <= BGFADE && rem > 0.05) { bg.pending = true; b.currentTime = 0; b.play().catch(() => {}); whenFirstFrame(b, () => { bg.idx = 1 - bg.idx; bgShow(b, true); bg.pending = false; }); }
+  else if (!bg.pending && a.ended) { bg.pending = true; b.currentTime = 0; b.play().catch(() => {}); whenFirstFrame(b, () => { bg.idx = 1 - bg.idx; bgShow(b); bg.pending = false; }); }   // secours
 }
 
 /* ---------- faisceau (désactivé par défaut) ---------- */
@@ -160,6 +229,9 @@ function startClip(name) {
   rewind(curEl); curEl.play().catch(e => st.textContent = 'Lecture bloquée : ' + e.message);
   whenFirstFrame(curEl, () => reveal(curEl));
   if (c.ui) setUi(c.ui);
+  if (name === 'scan') { playSound('lazer', 0); playSound('lazer', 3.0); }        // le son (3 s) joué 2 fois pendant la vidéo de 6 s
+  if (name === 'start') playSound('creature', 0.5);                              // apparition de la créature
+  if (name === 'end') playSound('creature', 0.2);                                // disparition
   setBeam(c.beam || 'off');
   if (c.loop) rewind(els[name][1], 0);                   // prépare le 2e lecteur (il démarre au tout début, amorce comprise)
   if (c.next && c.next !== 'idle') rewind(els[c.next][0]);   // prépare la vidéo suivante
@@ -198,11 +270,11 @@ function fadeStage() {
   setTimeout(() => { if (!cur) for (const v of ALL) { v.classList.remove('on'); v.pause(); v.currentTime = v._t0; } }, 450);
 }
 function idle() {                                          // retour à l'attente : fond BG + UI-Attente
-  queue = []; cur = null; curEl = null; setBeam('off'); setUi('attente'); fadeStage();
+  queue = []; cur = null; curEl = null; setBeam('off'); setUi('attente'); fadeStage(); stopOneShots();
   st.textContent = 'en attente';
 }
 function localise() {                                      // spécimen localisé : la vidéo Scan est remplacée par UI.png
-  queue = []; cur = null; curEl = null; setUi('ui'); fadeStage();
+  queue = []; cur = null; curEl = null; setUi('ui'); fadeStage(); stopOneShots();
   st.textContent = 'spécimen localisé : UI';
 }
 function act(cmd) {
@@ -216,7 +288,7 @@ function act(cmd) {
 document.getElementById('start').addEventListener('click', () => {
   document.getElementById('start').style.display = 'none'; ready = true;
   for (const v of ALL) { v.play().then(() => { v.pause(); v.currentTime = v._t0; }).catch(() => {}); }
-  bgStart(); requestAnimationFrame(tick); idle();
+  loadSounds(); bgStart(); requestAnimationFrame(tick); idle();
 });
 
 const es = new EventSource(RELAY + '/' + window.TOPIC + '/sse');
@@ -232,6 +304,6 @@ addEventListener('keydown', e => {
   const k = { '1': 'attente', '2': 'scan', '3': 'localise', '4': 'start', '5': 'faisceau', '6': 'eat', '7': 'end', '0': 'reset' }[e.key]; if (k) act(k);
   if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
 });
-window.__dbg = () => ({ cur, queue: queue.join('>'), swap: pending, idx, beamState, ui: uiA.classList.contains('on') ? 'attente' : uiB.classList.contains('on') ? 'ui' : 'scan',
+window.__dbg = () => ({ cur, queue: queue.join('>'), swap: pending, idx, beamState, ui: uiState, snd: Object.keys(buf).join(','), live: live.size,
   on: ALL.filter(v => v.classList.contains('on')).map(v => v.src.split('/').pop()), bg: bg.ok ? bg.els.filter(v => v.classList.contains('on')).map(v => v.src.split('/').pop()) : 'secours' });
 </script></body></html>

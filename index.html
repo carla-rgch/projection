@@ -57,7 +57,7 @@
 <script>
 /* ======== RÉGLAGES ======== */
 const END_DELAY = 1500;    // ms : après « Explorer d'autres missions », la vidéo End démarre, puis le téléphone revient à la sélection
-const RADAR = { duration: 9400, turns: 2, detectAngle: 35, afterDetect: 1800 };  // durée du balayage (ms) : à régler sur la vidéo Scan (10 s) ; nombre de tours ; cap du spécimen (°) ; pause avant l'écran suivant (ms)
+const RADAR = { duration: 6000, turns: 2, detectAngle: 35, afterDetect: 1800 };  // durée du balayage (ms) : à régler sur la vidéo Scan (6 s) ; nombre de tours ; cap du spécimen (°) ; pause avant l'écran suivant (ms)
 const FX = { tiltBg: [22, 30], tiltParticles: [26, 18] };          // intensité de l'effet de profondeur (px) : fond, particules
 /* ============================ */
 
@@ -76,8 +76,8 @@ const SD = window.SD;                       // découpe de chaque écran en él�
 
 /* ======== ÉCRANS ========
    zones : zones cliquables en pixels de l'export Figma (1170 de large) {x,y,w,h}   tap : action au toucher */
-const BTN = { x: 72, y: 2172, w: 1026, h: 174 };       // bouton du bas « standard »
-const BACK = { x: 60, y: 94, w: 460, h: 66 };          // flèche de retour en haut à gauche
+const BTN = { x: 72, y: 2146, w: 1026, h: 172 };       // bouton du bas « standard »
+const BACK = { x: 10, y: 40, w: 580, h: 190, r: 48 };      // flèche de retour en haut à gauche (zone large pour toucher facilement)
 const SCREENS = {
   s01: { zones: [{ ...BTN, tap: () => { send('attente'); go('s02'); } }] },
   s02: { camera: { x: 240, y: 970, w: 690, h: 690 },
@@ -86,10 +86,10 @@ const SCREENS = {
                  { x: 180, y: 1770, w: 810, h: 80, tap: () => fakeScan(), quiet: true }] },   // zone invisible : toucher la phrase « Visez le QR code… » simule le scan
   s03: { zones: [{ x: 72, y: 822, w: 495, h: 696, r: 60, tap: () => go('s04') }] },
   s04: { zones: [{ ...BACK, tap: () => go('s03') },
-                 { x: 72, y: 1272, w: 450, h: 96, tap: () => go('s05') },
-                 { x: 72, y: 1530, w: 1026, h: 198, r: 66, tap: () => go('s06a') }] },
-  s05: { zones: [{ x: 60, y: 94, w: 700, h: 90, tap: () => go('s04') },
-                 { x: 72, y: 5376, w: 1026, h: 144, tap: () => go('s04') }] },
+                 { x: 72, y: 1317, w: 450, h: 96, tap: () => go('s05') },
+                 { x: 72, y: 1584, w: 1026, h: 194, r: 66, tap: () => go('s06a') }] },
+  s05: { zones: [{ x: 10, y: 40, w: 760, h: 190, r: 48, tap: () => go('s04') },
+                 { x: 72, y: 5352, w: 1026, h: 140, tap: () => go('s04') }] },
   s06a: { radar: true,
           zones: [{ ...BACK, tap: () => { if (!busy) go('s04'); } },
                   { ...BTN, tap: () => startRadar() }] },
@@ -100,9 +100,9 @@ const SCREENS = {
   s09: { zones: [{ ...BTN, tap: () => go('s10a') }] },
   s10a: { zones: [{ ...BTN, tap: () => { send('eat'); go('s10b'); } }] },
   s10b: { zones: [{ ...BTN, tap: () => go('s11') }] },
-  s11: { zones: [{ x: 72, y: 1986, w: 1026, h: 168, tap: () => {
+  s11: { zones: [{ x: 72, y: 1962, w: 1026, h: 164, tap: () => {
             if (busy) return; busy = true; send('end'); later(END_DELAY, () => { busy = false; go('s03'); }); } },
-          { x: 72, y: 2178, w: 1026, h: 140, tap: () => { send('reset'); go('s01'); } }] },
+          { x: 72, y: 2160, w: 1026, h: 130, tap: () => { send('reset'); go('s01'); } }] },
 };
 const START = Q.get('start') || 's01';
 
@@ -167,6 +167,20 @@ async function go(id, opt = {}) {
   setScale();
 }
 
+/* ---- son des boutons (Web Audio ; il faut un premier toucher pour que le navigateur l'autorise) ---- */
+let AC = null, bRaw = null, bBuf = null;
+fetch('sons/bouton.mp3').then(r => r.arrayBuffer()).then(b => { bRaw = b; }).catch(() => {});
+function initAudio() {
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
+  (function dec() { if (bRaw) AC.decodeAudioData(bRaw.slice(0)).then(d => { bBuf = d; }).catch(() => {}); else setTimeout(dec, 100); })();
+}
+function bip() {
+  initAudio(); if (!AC || !bBuf) return; if (AC.state === 'suspended') AC.resume();
+  const s = AC.createBufferSource(); s.buffer = bBuf; s.connect(AC.destination); s.start();
+}
+addEventListener('pointerdown', initAudio);
+
 /* ---- zones cliquables + glow au toucher ---- */
 function buildZones(id) {
   zonesEl.innerHTML = '';
@@ -174,7 +188,7 @@ function buildZones(id) {
     const d = document.createElement('div'); d.className = 'zone'; box(d, z.x, z.y, z.w, z.h);
     d.style.borderRadius = px(z.r != null ? z.r : z.h / 2);
     d.innerHTML = '<div class="halo"></div><div class="rw"><div class="rip"></div></div>';
-    d.addEventListener('click', e => { if (z.quiet) return z.tap(); glow(d, z, e); later(170, z.tap); });   // le glow se voit avant le changement d'écran
+    d.addEventListener('click', e => { if (z.quiet) return z.tap(); bip(); glow(d, z, e); later(170, z.tap); });   // le glow se voit avant le changement d'écran
     zonesEl.appendChild(d);
   }
 }

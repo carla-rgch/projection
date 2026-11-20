@@ -15,7 +15,7 @@
 <table id="t"><tr><th>Vidéo</th><th>Résultat</th><th>Détail</th></tr></table>
 <div class="box" id="sum">Vérification en cours…</div>
 <script>
-const FILES = [['scan', 'webm', 9e5], ['start', 'webm', 6e6], ['loop_fade', 'webm', 1.3e7], ['allumage', 'webm', 5.5e5], ['loop_color', 'webm', 8.3e6], ['eat', 'webm', 2e6], ['end', 'webm', 3.1e6], ['bg', 'mp4', 1e5]];   // nom, format, taille minimale attendue (octets)
+const FILES = [['scan', 'webm', 6e5], ['start', 'webm', 6e6], ['loop_fade', 'webm', 1.4e7], ['allumage', 'webm', 5.5e5], ['loop_color', 'webm', 9e6], ['eat', 'webm', 1.5e6], ['end', 'webm', 2.4e6], ['bg', 'mp4', 1e5]];   // nom, format, taille minimale attendue (octets)
 const MIN = {}, EXT = {}; FILES.forEach(f => { EXT[f[0]] = f[1]; MIN[f[0]] = f[2]; });
 const NAMES = FILES.map(f => f[0]), t = document.getElementById('t'); let bad = 0, done = 0;
 function row(n) { const tr = document.createElement('tr'); tr.dataset.n = n; tr.innerHTML = `<td><code>videos/${n}.${EXT[n]}</code></td><td class="wait">…</td><td></td>`; t.appendChild(tr); return tr; }
