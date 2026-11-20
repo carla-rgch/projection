@@ -221,8 +221,12 @@ function reveal(el) {            // vidéos alpha : l'ancienne disparaît dans l
   el.style.zIndex = ++z; el.classList.add('on');
   for (const o of ALL) if (o !== el && o.classList.contains('on')) { o.classList.remove('on'); setTimeout(() => { if (!o.classList.contains('on')) { o.pause(); o.currentTime = 0; } }, 80); }
 }
-function rewind(v, t) { t = (t == null) ? v._t0 : t; if (Math.abs(v.currentTime - t) > 0.01) v.currentTime = t; }
+function rewind(v, t) {                                  // se place sur une image précise ; +1/60 s pour tomber au milieu de l'image visée (sinon le navigateur peut choisir l'image d'avant)
+  t = (t == null) ? v._t0 : t; const tt = t > 0 ? t + 1 / 60 : 0;
+  if (Math.abs(v.currentTime - tt) > 0.004) v.currentTime = tt;
+}
 function startClip(name) {
+  if (warm) { const w = els[warm][0]; if (warm !== name) { w.pause(); w.currentTime = 0; } warm = null; }
   const c = CLIPS[name]; stage.style.transition = 'none'; stage.style.opacity = 1;
   for (const o of ALL) if (!o.classList.contains('on') && !o.paused) o.pause();      // un lecteur de relais resté en route
   cur = name; idx = 0; curEl = els[name][0]; advanced = false; pending = false;
@@ -247,7 +251,27 @@ function advance() {
   const c = CLIPS[cur];
   if (c.loop) { if (queue.length) startClip(queue.shift()); else swapLoop(); return; }
   const n = queue.shift() || c.next;
-  if (n === 'idle') idle(); else if (n) startClip(n);
+  if (warm && warm !== n) { const w = els[warm][0]; w.pause(); w.currentTime = 0; warm = null; }
+  if (n === 'idle') idle(); else if (n === warm) enterWarm(n); else if (n) startClip(n);
+}
+/* Enchaînement vidéo -> boucle sans saccade : le lecteur de la boucle démarre un peu AVANT la fin de la vidéo (caché), pour que sa 1re image soit déjà en train de défiler au moment de la relève
+   (sinon le navigateur met ~0,1 s à démarrer : image figée puis saut). */
+let warm = null, LAT = 0.06;
+function warmUp(name) {
+  const B = els[name][0], t0 = performance.now(); warm = name; rewind(B, 0); B.play().catch(() => {});
+  B.requestVideoFrameCallback && B.requestVideoFrameCallback(() => { LAT = Math.min(0.3, Math.max(0.04, 0.5 * LAT + 0.5 * (performance.now() - t0) / 1000)); });
+}
+function enterWarm(name) {
+  const c = CLIPS[name], B = els[name][0]; warm = null;
+  stage.style.transition = 'none'; stage.style.opacity = 1;
+  cur = name; idx = 0; curEl = B; advanced = false; pending = false;
+  const t0 = performance.now();
+  (function wait() { if (B.currentTime >= c.pre - 0.02 || performance.now() - t0 > 400) reveal(B); else requestAnimationFrame(wait); })();
+  if (c.ui) setUi(c.ui);
+  setBeam(c.beam || 'off');
+  rewind(els[name][1], 0);
+  if (c.next && c.next !== 'idle') rewind(els[c.next][0]);
+  st.textContent = 'vidéo : ' + name;
 }
 /* Relais sans pause : les fichiers de boucle commencent par une amorce (les 6 dernières images de la boucle).
    Quand le lecteur A approche de la fin, le lecteur B démarre au début de son amorce ; dès que B montre la même image que A, on passe sur B. */
@@ -260,7 +284,11 @@ function tick() {
       if (pending && other.currentTime > 0.001 && other.currentTime + rem >= c.pre - 0.004) {
         idx = 1 - idx; curEl = other; pending = false; advanced = false; reveal(other);
       }
-    } else if (!c.loop && rem <= LEAD && (c.next || queue.length)) advance();
+    } else if (!c.loop) {
+      const nx = c.next && c.next !== 'idle' && CLIPS[c.next];
+      if (nx && nx.loop && !queue.length && !warm && rem <= nx.pre + LAT + 0.02 && rem > 0.02) warmUp(c.next);
+      if (warm ? rem <= 0.012 || curEl.ended : rem <= LEAD) { if (c.next || queue.length) advance(); }
+    }
   }
   if (ready) bgTick();
   requestAnimationFrame(tick);
@@ -270,6 +298,7 @@ function fadeStage() {
   setTimeout(() => { if (!cur) for (const v of ALL) { v.classList.remove('on'); v.pause(); v.currentTime = v._t0; } }, 450);
 }
 function idle() {                                          // retour à l'attente : fond BG + UI-Attente
+  if (warm) { const w = els[warm][0]; w.pause(); w.currentTime = 0; warm = null; }
   queue = []; cur = null; curEl = null; setBeam('off'); setUi('attente'); fadeStage(); stopOneShots();
   st.textContent = 'en attente';
 }
