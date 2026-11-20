@@ -15,20 +15,22 @@
 <table id="t"><tr><th>Vidéo</th><th>Résultat</th><th>Détail</th></tr></table>
 <div class="box" id="sum">Vérification en cours…</div>
 <script>
-const MIN = { attente: 1.5e6, start: 3e6, loop_fade: 4e6, allumage: 1e6, loop_color: 5e6, eat: 3e6, end: 3e6 };   // tailles minimales attendues (octets)
-const NAMES = Object.keys(MIN), t = document.getElementById('t'); let bad = 0, done = 0;
-function row(n) { const tr = document.createElement('tr'); tr.innerHTML = `<td><code>videos/${n}.mp4</code></td><td class="wait">…</td><td></td>`; t.appendChild(tr); return tr; }
-function fin(tr, ok, msg, detail) { tr.children[1].className = ok ? 'ok' : 'ko'; tr.children[1].textContent = msg; tr.children[2].innerHTML = detail || ''; if (!ok) bad++; if (++done === NAMES.length) summary(); }
+const FILES = [['scan', 'webm', 9e5], ['start', 'webm', 6e6], ['loop_fade', 'webm', 1.3e7], ['allumage', 'webm', 5.5e5], ['loop_color', 'webm', 8.3e6], ['eat', 'webm', 2e6], ['end', 'webm', 3.1e6], ['bg', 'mp4', 1e5]];   // nom, format, taille minimale attendue (octets)
+const MIN = {}, EXT = {}; FILES.forEach(f => { EXT[f[0]] = f[1]; MIN[f[0]] = f[2]; });
+const NAMES = FILES.map(f => f[0]), t = document.getElementById('t'); let bad = 0, done = 0;
+function row(n) { const tr = document.createElement('tr'); tr.dataset.n = n; tr.innerHTML = `<td><code>videos/${n}.${EXT[n]}</code></td><td class="wait">…</td><td></td>`; t.appendChild(tr); return tr; }
+function fin(tr, ok, msg, detail, optional) {
+  if (!ok && tr.dataset.n === 'bg' && /404/.test(msg)) { tr.children[1].className = 'wait'; tr.children[1].textContent = '… absente'; tr.children[2].innerHTML = detail + ' <i>(facultatif pour l\'instant : un fond bleu de secours est affiché.)</i>'; if (++done === NAMES.length) summary(); return; } tr.children[1].className = ok ? 'ok' : 'ko'; tr.children[1].textContent = msg; tr.children[2].innerHTML = detail || ''; if (!ok) bad++; if (++done === NAMES.length) summary(); }
 async function check(n) {
-  const tr = row(n), url = `videos/${n}.mp4`;
+  const tr = row(n), url = `videos/${n}.${EXT[n]}`;
   try {
     const r = await fetch(url, { cache: 'no-store' });
     if (r.status === 404) {
       // on cherche si le fichier existe sous un autre nom (majuscules…)
       const alts = [n[0].toUpperCase() + n.slice(1), n.toUpperCase(), n.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join('_')];
       let found = '';
-      for (const a of alts) { try { const r2 = await fetch(`videos/${a}.mp4`, { method: 'HEAD', cache: 'no-store' }); if (r2.ok) { found = a; break; } } catch (e) {} }
-      return fin(tr, false, '✗ introuvable (404)', found ? `Un fichier existe sous le nom <code>${found}.mp4</code> : il faut le renommer en <code>${n}.mp4</code> (tout en minuscules).` : `Le fichier n'est pas dans le dossier <code>videos</code> du dépôt, ou son nom est différent. Il doit s'appeler exactement <code>${n}.mp4</code>.`);
+      for (const a of alts) { try { const r2 = await fetch(`videos/${a}.${EXT[n]}`, { method: 'HEAD', cache: 'no-store' }); if (r2.ok) { found = a; break; } } catch (e) {} }
+      return fin(tr, false, '✗ introuvable (404)', found ? `Un fichier existe sous le nom <code>${found}.${EXT[n]}</code> : il faut le renommer en <code>${n}.${EXT[n]}</code> (tout en minuscules).` : `Le fichier n'est pas dans le dossier <code>videos</code> du dépôt, ou son nom est différent. Il doit s'appeler exactement <code>${n}.${EXT[n]}</code>.`);
     }
     if (!r.ok) return fin(tr, false, '✗ erreur ' + r.status, 'Le site a répondu autrement que par le fichier.');
     const buf = await r.arrayBuffer(), b = new Uint8Array(buf), size = b.length;
@@ -36,19 +38,19 @@ async function check(n) {
     const mb = (size / 1048576).toFixed(1) + ' Mo';
     if (head.startsWith('version https://git-lfs')) return fin(tr, false, '✗ fichier « LFS »', 'Ce n\'est qu\'un pointeur de quelques octets, pas la vidéo. Renvoyez la vidéo par l\'envoi normal de fichiers.');
     if (/<html|<!doctype/i.test(head)) return fin(tr, false, '✗ ce n\'est pas une vidéo', 'Le site renvoie une page web à la place du fichier.');
-    const sig = new TextDecoder().decode(b.slice(4, 8));
-    if (sig !== 'ftyp') return fin(tr, false, '✗ fichier abîmé (' + mb + ')', 'Le fichier ne commence pas comme une vidéo MP4 : il a sans doute été mal envoyé. Renvoyez-le.');
+    const isWebm = b[0] === 0x1A && b[1] === 0x45 && b[2] === 0xDF && b[3] === 0xA3, isMp4 = new TextDecoder().decode(b.slice(4, 8)) === 'ftyp';
+    if (!(isWebm || isMp4)) return fin(tr, false, '✗ fichier abîmé (' + mb + ')', 'Le fichier ne commence pas comme une vidéo : il a sans doute été mal envoyé. Renvoyez-le.');
     if (size < MIN[n]) return fin(tr, false, '✗ fichier incomplet (' + mb + ')', 'Le fichier est trop petit : l\'envoi a été interrompu. Renvoyez-le (il doit faire environ ' + (MIN[n] / 1048576 * 1.6).toFixed(0) + ' Mo ou plus).');
     // le navigateur sait-il le lire ?
     const v = document.createElement('video'); v.muted = true; v.preload = 'metadata';
-    const ok = await new Promise(res => { v.onloadedmetadata = () => res('ok'); v.onerror = () => res('err'); setTimeout(() => res('timeout'), 8000); v.src = URL.createObjectURL(new Blob([buf], { type: 'video/mp4' })); });
+    const ok = await new Promise(res => { v.onloadedmetadata = () => res('ok'); v.onerror = () => res('err'); setTimeout(() => res('timeout'), 8000); v.src = URL.createObjectURL(new Blob([buf], { type: isWebm ? 'video/webm' : 'video/mp4' })); });
     if (ok === 'ok') return fin(tr, true, '✓ OK (' + mb + ')', 'Durée ' + v.duration.toFixed(1) + ' s, ' + v.videoWidth + '×' + v.videoHeight + '.');
     fin(tr, false, '✗ illisible (' + mb + ')', 'Le fichier est présent mais le navigateur ne peut pas le lire. Renvoyez-le depuis le dossier fourni.');
   } catch (e) { fin(tr, false, '✗ erreur', String(e)); }
 }
 function summary() {
   const s = document.getElementById('sum');
-  s.innerHTML = bad === 0 ? '<b class="ok">Les 7 vidéos sont bonnes.</b> Si l\'écran affiche encore une erreur, rechargez-le avec Cmd + Maj + R (vider le cache).'
+  s.innerHTML = bad === 0 ? '<b class="ok">Toutes les vidéos sont bonnes.</b> Si l\'écran affiche encore une erreur, rechargez-le avec Cmd + Maj + R (vider le cache).'
     : `<b class="ko">${bad} vidéo(s) à corriger.</b> Corrigez ce qui est indiqué en rouge, attendez 1 à 2 minutes que GitHub publie, puis rechargez cette page.`;
 }
 NAMES.forEach(check);

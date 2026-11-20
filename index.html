@@ -57,7 +57,7 @@
 <script>
 /* ======== RÉGLAGES ======== */
 const END_DELAY = 1500;    // ms : après « Explorer d'autres missions », la vidéo End démarre, puis le téléphone revient à la sélection
-const RADAR = { speed: 170, detectAngle: 35, afterDetect: 2200 };  // vitesse (°/s), cap du spécimen (°), pause avant l'écran suivant (ms)
+const RADAR = { duration: 9400, turns: 2, detectAngle: 35, afterDetect: 1800 };  // durée du balayage (ms) : à régler sur la vidéo Scan (10 s) ; nombre de tours ; cap du spécimen (°) ; pause avant l'écran suivant (ms)
 const FX = { tiltBg: [22, 30], tiltParticles: [26, 18] };          // intensité de l'effet de profondeur (px) : fond, particules
 /* ============================ */
 
@@ -226,13 +226,14 @@ function startRadar() {
   if (busy || !radarState) return; busy = true;
   const rs = radarState; rs.running = true;
   go('s06b', { only: [6] });                                         // le bouton devient « Balayage en cours… »
-  const t0 = performance.now(), total = 360 + RADAR.detectAngle; let detected = false;
+  send('scan');                                                      // la projection lance la vidéo Scan
+  const t0 = performance.now(), total = 360 * RADAR.turns + RADAR.detectAngle; let detected = false;
   (function frame(now) {
     if (!rs.running) return;
-    const ang = Math.min((now - t0) / 1000 * RADAR.speed, total);
+    const ang = Math.min((now - t0) / RADAR.duration * total, total);
     drawSweep(rs.cv, ang % 360);
     if (ang >= total && !detected) {
-      detected = true;
+      detected = true; send('localise');                              // la projection remplace Scan par UI.png
       go('s06b', { keepRadar: true });                               // 06B : spécimen localisé (fondu enchaîné)
       later(420, () => { rs.cv.style.display = 'none'; });
       later(RADAR.afterDetect, () => { if (curId === 's06b') { busy = false; stopRadar(); go('s07'); } });
